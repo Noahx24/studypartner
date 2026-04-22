@@ -131,3 +131,37 @@ The demo:
 ```bash
 pytest -q
 ```
+
+## Frontend app (React + Tailwind)
+
+A full web frontend is available in `frontend/` and integrates with the backend endpoints.
+
+### Run frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Set API base URL (optional):
+
+```bash
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+### Frontend structure
+
+```text
+frontend/
+  src/
+    api/client.js
+    components/
+    lib/date.js
+    pages/
+      LandingPage.jsx
+      DashboardPage.jsx
+      TodayPage.jsx
+      WeekPage.jsx
+      ModulesPage.jsx
+      SettingsPage.jsx
