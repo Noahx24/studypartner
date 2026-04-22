@@ -4,9 +4,15 @@ export default {
   theme: {
     extend: {
       colors: {
-        surface: '#0b0b0d',
-        panel: '#121217',
-        muted: '#a1a1aa',
+        brand: {
+          50: '#edf3ff',
+          100: '#dce8ff',
+          300: '#a9c4ff',
+          400: '#89adff',
+          500: '#6a96ff',
+          600: '#4f7fea',
+          700: '#3d67c7',
+        },
       },
     },
   },

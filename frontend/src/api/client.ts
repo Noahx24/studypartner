@@ -1,4 +1,12 @@
-import type { AssessmentForm, DailyPlanResponse, ModuleForm, UserSettings, WeeklyPlanResponse } from '../types';
+import type {
+  AssessmentForm,
+  DailyPlanResponse,
+  ModuleContentResponse,
+  ModuleForm,
+  StudyUnitsResponse,
+  UserSettings,
+  WeeklyPlanResponse,
+} from '../types';
 import { isoDate, startOfWeek } from '../utils/date';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -21,12 +29,32 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 };
 
 export const api = {
-  createUser: (payload: UserSettings) => request('/users', { method: 'POST', body: JSON.stringify({ ...payload, id: payload.userId }) }),
+  createUser: (payload: UserSettings) =>
+    request<{ status: string; user_id: string }>('/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: payload.userId,
+        name: payload.name,
+        email: payload.email,
+        hours_per_day: payload.hours_per_day,
+        days_per_week: payload.days_per_week,
+        pace: payload.pace,
+      }),
+    }),
 
-  updateOrCreateModule: (userId: string, module: ModuleForm) =>
-    request('/modules', { method: 'POST', body: JSON.stringify({ ...module, user_id: userId }) }),
+  getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
 
-  addAssessment: (assessment: AssessmentForm) => request('/assessments', { method: 'POST', body: JSON.stringify(assessment) }),
+  createModule: (userId: string, module: ModuleForm) =>
+    request<{ status: string; module_id: string }>('/modules', {
+      method: 'POST',
+      body: JSON.stringify({ ...module, user_id: userId }),
+    }),
+
+  addAssessment: (assessment: AssessmentForm) =>
+    request<{ status: string; assessment_id: string }>('/assessments', {
+      method: 'POST',
+      body: JSON.stringify(assessment),
+    }),
 
   uploadContent: (payload: {
     user_id: string;
@@ -44,41 +72,32 @@ export const api = {
     if (payload.pasted_text) form.append('pasted_text', payload.pasted_text);
     if (payload.file) form.append('file', payload.file);
 
-    return request('/upload', { method: 'POST', body: form });
+    return request<{ topics?: unknown[]; total_estimated_minutes?: number }>('/upload', { method: 'POST', body: form });
   },
 
-  getWeekPlan: async (userId: string): Promise<WeeklyPlanResponse> => {
-    const weekStart = isoDate(startOfWeek(new Date()));
+  getModuleContent: (moduleId: string) => request<ModuleContentResponse>(`/modules/${moduleId}/content`),
 
-    try {
-      return await request('/plan/week');
-    } catch {
-      return request('/plans/generate', { method: 'POST', body: JSON.stringify({ user_id: userId, start_date: weekStart }) });
-    }
-  },
+  getStudyUnits: (moduleId: string) => request<StudyUnitsResponse>(`/modules/${moduleId}/study-units`),
 
-  getTodayPlan: async (userId: string): Promise<DailyPlanResponse> => {
-    const today = isoDate(new Date());
-    try {
-      return await request('/plan/today');
-    } catch {
-      return request(`/plans/daily/${userId}/${today}`);
-    }
-  },
-
-  completeSession: async (sessionId: string) => {
-    try {
-      return await request('/session/complete', { method: 'POST', body: JSON.stringify({ session_id: sessionId }) });
-    } catch {
-      return request(`/plans/sessions/${sessionId}/complete`, { method: 'POST' });
-    }
-  },
-
-  reschedule: async (userId: string) => {
-    const today = isoDate(new Date());
-    return request('/reschedule', {
+  generatePlan: (userId: string) =>
+    request<WeeklyPlanResponse>('/plans/generate', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId, from_date: today }),
-    }).catch(() => request('/plans/reschedule', { method: 'POST', body: JSON.stringify({ user_id: userId, from_date: today }) }));
-  },
+      body: JSON.stringify({ user_id: userId, start_date: isoDate(startOfWeek(new Date())) }),
+    }),
+
+  getDailyPlan: (userId: string, forDate = isoDate(new Date())) => request<DailyPlanResponse>(`/plans/daily/${userId}/${forDate}`),
+
+  completeSession: (sessionId: string) => request<{ status: string; session_id: string }>(`/plans/sessions/${sessionId}/complete`, { method: 'POST' }),
+
+  submitFeedback: (payload: { user_id: string; session_id: string; actual_time_minutes: number }) =>
+    request<{ multiplier: number; samples: number; status: string }>('/plans/session/feedback', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  reschedule: (payload: { user_id: string; from_date?: string }) =>
+    request<WeeklyPlanResponse>('/plans/reschedule', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: payload.user_id, from_date: payload.from_date ?? isoDate(new Date()) }),
+    }),
 };
