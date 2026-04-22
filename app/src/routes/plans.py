@@ -4,8 +4,8 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException
 
-from app.services.personalization_service import update_multiplier_from_feedback
-from app.services.planning_service import generate_sessions, reschedule
+from app.src.models.services.personalization_service import update_multiplier_from_feedback
+from app.src.models.services.planning_service import generate_sessions, reschedule
 from app.storage import (
     clear_planned_sessions,
     get_assessment_due_date,

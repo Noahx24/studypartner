@@ -1,9 +1,9 @@
 from datetime import date, timedelta
 
-from app.models import Assessment, Module, ModuleType, Pace, UnitStatus, User
-from app.services.ingestion_service import clean_text, parse_topics
-from app.services.personalization_service import update_multiplier_from_feedback
-from app.services.planning_service import (
+from app.src.models import Assessment, Module, ModuleType, Pace, UnitStatus, User
+from app.src.models.services.ingestion_service import clean_text, parse_topics
+from app.src.models.services.personalization_service import update_multiplier_from_feedback
+from app.src.models.services.planning_service import (
     allocate_time,
     calculate_priority,
     content_to_units,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from app.models import Pace, User
+from app.src.models import Pace, User
 from app.storage import create_user, get_user
 
 router = APIRouter(prefix="/users", tags=["users"])

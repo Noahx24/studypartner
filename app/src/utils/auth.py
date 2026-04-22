@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException
 
-from app.services.auth_service import verify_token
+from app.src.models.services.auth_service import verify_token
 from app.storage import get_user
 
 

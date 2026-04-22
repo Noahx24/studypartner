@@ -7,7 +7,7 @@ from itertools import count
 import math
 import re
 
-from app.models import Module, ModuleType, Pace, Session, StudyUnit, UnitStatus, User, WeeklyModuleSummary, WeeklyPlan
+from app.src.models import Module, ModuleType, Pace, Session, StudyUnit, UnitStatus, User, WeeklyModuleSummary, WeeklyPlan
 
 
 PACE_MINUTES_PER_500_WORDS = {Pace.slow: 30, Pace.normal: 22, Pace.fast: 16}

@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 import re
 
-from app.models import Module, ModuleType, Pace, StudyTopic, User
-from app.services.planning_service import content_to_units
+from app.src.models import Module, ModuleType, Pace, StudyTopic, User
+from app.src.models.services.planning_service import content_to_units
 from app.storage import add_module, get_user_multiplier, replace_topics_and_units, save_upload
 
 

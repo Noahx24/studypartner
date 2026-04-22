@@ -4,8 +4,8 @@ from datetime import date
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.models import Assessment, Module, ModuleType
-from app.services.ingestion_service import upload_and_ingest
+from app.src.models import Assessment, Module, ModuleType
+from app.src.models.services.ingestion_service import upload_and_ingest
 from app.storage import add_assessment, add_module, get_module_content, get_module_study_units, get_user
 
 router = APIRouter(tags=["modules"])

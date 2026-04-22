@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import date, timedelta
 import uuid
 
-from app.models import Assessment, ModuleType, Pace, User
-from app.services.ingestion_service import upload_and_ingest
-from app.services.personalization_service import update_multiplier_from_feedback
-from app.services.planning_service import generate_sessions, reschedule
+from app.src.models import Assessment, ModuleType, Pace, User
+from app.src.models.services.ingestion_service import upload_and_ingest
+from app.src.models.services.personalization_service import update_multiplier_from_feedback
+from app.src.models.services.planning_service import generate_sessions, reschedule
 from app.storage import (
     add_assessment,
     create_user,

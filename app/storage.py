@@ -4,7 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 import sqlite3
 
-from .models import Assessment, Module, ModuleType, Pace, Session, StudyTopic, StudyUnit, UnitStatus, User
+from .src.models import Assessment, Module, ModuleType, Pace, Session, StudyTopic, StudyUnit, UnitStatus, User
 
 
 DB_PATH = Path("data/studypartner.db")
