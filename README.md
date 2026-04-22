@@ -1,3 +1,15 @@
+StudyPartner — an AI-powered study planning system for busy students balancing work, life, and deadlines.
+
+CORE OBJECTIVE
+
+Help users consistently make progress in their studies by:
+
+Turning unstructured study material into structured plans
+Allocating realistic study time based on their availability
+Adapting when users fall behind
+Prioritizing what matters most (deadlines, workload, pace)
+
+
 # StudyPartner Backend Service
 
 ## Project structure
