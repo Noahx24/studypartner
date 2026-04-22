@@ -14,13 +14,7 @@ PACE_MINUTES_PER_500_WORDS = {Pace.slow: 30, Pace.normal: 22, Pace.fast: 16}
 WEEKLY_RECOMMENDATION_MINUTES = {ModuleType.year: (240, 360), ModuleType.semester: (360, 480)}
 
 
-def content_to_units(
-    module_id: str,
-    raw_text: str,
-    pace: Pace,
-    custom_minutes_per_500_words: int | None = None,
-    pace_multiplier: float = 1.0,
-) -> list[StudyUnit]:
+def content_to_units(module_id: str, raw_text: str, pace: Pace, custom_minutes_per_500_words: int | None = None, user_multiplier: float = 1.0) -> list[StudyUnit]:
     blocks = [b.strip() for b in re.split(r"\n\s*\n+", raw_text) if b.strip()] or [raw_text]
     units: list[StudyUnit] = []
     for i, block in enumerate(blocks, start=1):
@@ -31,7 +25,7 @@ def content_to_units(
                 continue
             long_ratio = sum(1 for w in part if len(w) > 8) / len(part)
             complexity = round(min(2.0, 0.9 + long_ratio + (sum(len(w) for w in part) / len(part) / 12)), 2)
-            minutes = estimate_time(len(part), complexity, pace, custom_minutes_per_500_words, pace_multiplier)
+            minutes = estimate_time(len(part), complexity, pace, custom_minutes_per_500_words, user_multiplier)
             units.append(
                 StudyUnit(
                     id=f"{module_id}-unit-{len(units)+1}",
@@ -47,18 +41,11 @@ def content_to_units(
     return units
 
 
-def estimate_time(
-    word_count: int,
-    complexity: float,
-    pace: Pace,
-    custom_minutes_per_500_words: int | None = None,
-    pace_multiplier: float = 1.0,
-) -> int:
+def estimate_time(word_count: int, complexity: float, pace: Pace, custom_minutes_per_500_words: int | None = None, user_multiplier: float = 1.0) -> int:
     base = custom_minutes_per_500_words if (pace == Pace.custom and custom_minutes_per_500_words) else PACE_MINUTES_PER_500_WORDS[pace]
     words_based = (word_count / 275) * 5
-    raw = words_based * complexity * (base / PACE_MINUTES_PER_500_WORDS[Pace.normal])
-    adjusted = raw * pace_multiplier
-    return max(20, int(math.ceil(adjusted / 5) * 5))
+    raw = words_based * complexity * (base / PACE_MINUTES_PER_500_WORDS[Pace.normal]) * user_multiplier
+    return max(20, int(math.ceil(raw / 5) * 5))
 
 
 def calculate_priority(deadline: date, current_day: date, remaining_minutes: int, started: bool) -> float:

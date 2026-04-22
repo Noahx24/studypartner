@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
 from typing import Literal
@@ -29,15 +29,11 @@ class User:
     id: str
     name: str
     email: str
-    password_hash: str
     hours_per_day: float
     days_per_week: int
-    pace_setting: Pace = Pace.normal
+    pace: Pace = Pace.normal
     custom_minutes_per_500_words: int | None = None
     max_daily_hours: float = 4.0
-    pace_multiplier: float = 1.0
-    feedback_samples: int = 0
-    created_at: datetime = field(default_factory=datetime.utcnow)
 
 
 @dataclass
@@ -88,18 +84,6 @@ class Session:
     session_date: date
     planned_minutes: int
     status: Literal["planned", "completed", "missed"] = "planned"
-
-
-@dataclass
-class SessionFeedback:
-    id: str
-    user_id: str
-    session_id: str
-    study_unit_id: str
-    estimated_time_minutes: int
-    actual_time_minutes: int
-    ratio: float
-    created_at: datetime
 
 
 @dataclass

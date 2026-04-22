@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import date
 import re
 
-from app.models import Module, ModuleType, StudyTopic, User
+from app.models import Module, ModuleType, Pace, StudyTopic, User
 from app.services.planning_service import content_to_units
-from app.storage import add_module, replace_topics_and_units, save_upload
+from app.storage import add_module, get_user_multiplier, replace_topics_and_units, save_upload
 
 
 def clean_text(raw_text: str) -> str:
@@ -64,7 +64,8 @@ def upload_and_ingest(
 
     add_module(Module(id=module_id, user_id=user.id, name=module_name, module_type=module_type))
     topics = parse_topics(module_id, raw_text)
-    units = content_to_units(module_id, raw_text, user.pace_setting, user.custom_minutes_per_500_words, user.pace_multiplier)
+    multiplier, _ = get_user_multiplier(user.id)
+    units = content_to_units(module_id, raw_text, user.pace, user.custom_minutes_per_500_words, multiplier)
     replace_topics_and_units(module_id, topics, units)
 
     return {
