@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { api } from './api/client';
 import { FeedbackModal } from './components/FeedbackModal';
 import { ModuleCard } from './components/ModuleCard';
@@ -6,10 +6,14 @@ import { OnboardingStep } from './components/OnboardingStep';
 import { ProgressBar } from './components/ProgressBar';
 import { SessionCard } from './components/SessionCard';
 import { WeeklyGrid } from './components/WeeklyGrid';
+import { AssessmentsView } from './views/AssessmentsView';
+import { CalendarView } from './views/CalendarView';
+import { ModuleDetailView } from './views/ModuleDetailView';
+import { TimerView } from './views/TimerView';
 import type { AssessmentForm, ModuleContentResponse, ModuleForm, OnboardingData, StudySession, UserSettings } from './types';
 import { isoDate, prettyDate, startOfWeek } from './utils/date';
 
-type Tab = 'dashboard' | 'today' | 'week' | 'modules' | 'upload';
+type Tab = 'dashboard' | 'today' | 'timer' | 'week' | 'calendar' | 'modules' | 'module_detail' | 'assessments' | 'upload';
 
 const emptyOnboarding: OnboardingData = {
   weeklyHours: 8,
@@ -53,6 +57,8 @@ export function App() {
   const [moduleDetails, setModuleDetails] = useState<Record<string, { content?: ModuleContentResponse; totalMinutes: number }>>({});
   const [uploadForm, setUploadForm] = useState({ moduleId: '', pastedText: '', file: undefined as File | undefined });
   const [calendarMode, setCalendarMode] = useState<'week' | 'month'>('week');
+  const [selectedModuleId, setSelectedModuleId] = useState<string>('');
+  const [selectedSession, setSelectedSession] = useState<StudySession | null>(null);
 
   const loadPlans = async (userId: string) => {
     const [week, today] = await Promise.all([api.generatePlan(userId), api.getDailyPlan(userId)]);
@@ -281,49 +287,253 @@ export function App() {
 
       {tab === 'dashboard' && (
         <section className="space-y-3">
+          {/* Next session hero card */}
+          {nextSession && (
+            <article className="bg-slate-900 text-white rounded-2xl p-5 space-y-3 border border-slate-800">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-lime-400" />
+                <span className="text-xs font-mono font-bold uppercase text-slate-300">Now · {nextSession.session_date}</span>
+              </div>
+              <div className="text-lg font-mono font-bold text-slate-400 mb-1 uppercase tracking-wide">{nextSession.module_id}</div>
+              <p className="text-xl font-bold leading-tight mb-1">{nextSession.unit_id}</p>
+              <p className="text-sm opacity-70 font-mono mb-4">{nextSession.planned_minutes} min focus</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setSelectedSession(nextSession);
+                    setTab('timer');
+                  }}
+                  className="flex-1 bg-lime-400 text-slate-900 font-bold py-3 rounded-lg hover:bg-lime-300 transition"
+                >
+                  Start focus
+                </button>
+                <button onClick={() => setTab('today')} className="px-4 py-3 border border-slate-600 rounded-lg hover:bg-slate-800 transition">
+                  Skip
+                </button>
+              </div>
+            </article>
+          )}
+
+          {/* Remaining time and progress */}
           <article className="card space-y-2">
-            <p className="text-sm text-slate-500">Remaining study time today</p>
-            <p className="text-3xl font-semibold text-slate-900">{remainingMinutes} min</p>
+            <p className="text-sm text-slate-500">Study time remaining</p>
+            <p className="text-3xl font-semibold text-slate-900">{remainingMinutes} min today</p>
           </article>
-          <article className="card space-y-2">
-            <p className="text-sm text-slate-500">Next session</p>
-            <p className="font-semibold text-slate-900">{nextSession ? `${nextSession.module_id} · ${nextSession.unit_id}` : 'You are clear for today'}</p>
-          </article>
-          <article className="card space-y-3">
-            <p className="text-sm text-slate-500">Progress summary</p>
-            <ProgressBar value={todaySessions.length === 0 ? 0 : Math.round((completedToday / todaySessions.length) * 100)} />
-            <p className="text-xs text-slate-500">{completedToday}/{todaySessions.length} sessions done today</p>
-          </article>
-          <article className="card">
-            <p className="mb-2 text-sm text-slate-500">Upcoming assessments</p>
-            <ul className="space-y-2 text-sm text-slate-700">
-              {assessments.length === 0 ? <li>No deadlines yet.</li> : assessments.slice(0, 4).map((item) => <li key={item.id}>{item.title} · {prettyDate(item.due_date)}</li>)}
-            </ul>
-          </article>
+
+          <div className="grid grid-cols-2 gap-3">
+            <article className="card space-y-2">
+              <p className="text-xs text-slate-500 font-mono font-bold uppercase">Done</p>
+              <p className="text-2xl font-bold text-slate-900">
+                {completedToday}<span className="text-slate-400">/{todaySessions.length}</span>
+              </p>
+            </article>
+            <article className="card space-y-2">
+              <p className="text-xs text-slate-500 font-mono font-bold uppercase">Progress</p>
+              <ProgressBar value={todaySessions.length === 0 ? 0 : Math.round((completedToday / todaySessions.length) * 100)} />
+            </article>
+          </div>
+
+          {/* Module progress */}
+          <div className="mt-4">
+            <div className="flex items-baseline justify-between px-1 mb-3">
+              <p className="text-xs font-mono font-bold text-slate-500 uppercase tracking-wide">This week</p>
+              <button onClick={() => setTab('modules')} className="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                See all →
+              </button>
+            </div>
+            <div className="space-y-2">
+              {moduleStats.slice(0, 2).map((module) => (
+                <article
+                  key={module.id}
+                  onClick={() => {
+                    setSelectedModuleId(module.id);
+                    setTab('module_detail');
+                  }}
+                  className="card p-3 cursor-pointer hover:shadow-md transition"
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <p className="font-semibold text-slate-900 text-sm">{module.name}</p>
+                    <span className="text-xs px-2 py-1 rounded-lg bg-slate-100 text-slate-700 font-medium">
+                      {module.progress}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${module.progress}%` }} />
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          {/* Upcoming assessments */}
+          <div className="mt-4">
+            <div className="flex items-baseline justify-between px-1 mb-3">
+              <p className="text-xs font-mono font-bold text-slate-500 uppercase tracking-wide">Coming up</p>
+              <button onClick={() => setTab('assessments')} className="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                All →
+              </button>
+            </div>
+            {assessments.length === 0 ? (
+              <p className="text-sm text-slate-500">No assessments scheduled yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {assessments.slice(0, 2).map((a) => {
+                  const daysLeft = Math.ceil((new Date(a.due_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                  return (
+                    <article key={a.id} className="card p-3 border-l-4 border-blue-500">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-slate-900 text-sm mb-1">{a.title}</p>
+                          <p className="text-xs text-slate-500">{modules.find((m) => m.id === a.module_id)?.name}</p>
+                        </div>
+                        <span className="text-xs px-2 py-1 rounded-lg bg-blue-100 text-blue-700 font-bold whitespace-nowrap">{daysLeft}d left</span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </section>
       )}
 
       {tab === 'today' && (
         <section className="space-y-3">
+          {/* Header */}
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Today</h2>
-            <button className="btn-secondary" onClick={() => api.reschedule({ user_id: user.userId }).then(() => loadPlans(user.userId))}>Reschedule</button>
+            <div>
+              <p className="text-xs font-mono font-bold text-slate-500 uppercase tracking-wide mb-1">
+                {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
+              </p>
+              <h1 className="text-2xl font-bold text-slate-900">Today</h1>
+            </div>
+            <button
+              className="px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition text-sm font-medium text-slate-700"
+              onClick={() => api.reschedule({ user_id: user.userId }).then(() => loadPlans(user.userId))}
+            >
+              Replan
+            </button>
           </div>
-          {todaySessions.map((session, index) => {
-            const derivedStatus = session.status === 'completed' ? 'completed' : activeSessions[session.id] ? 'in_progress' : 'not_started';
-            return (
-              <SessionCard
-                key={session.id}
-                session={session}
-                moduleName={modules.find((module) => module.id === session.module_id)?.name ?? session.module_id}
-                slot={fmtSlot(slotForIndex(index, onboarding.windows))}
-                status={derivedStatus}
-                onStart={() => handleStart(session.id)}
-                onComplete={() => handleComplete(session)}
-              />
-            );
-          })}
-          {todaySessions.length === 0 && <article className="card text-sm text-slate-600">No sessions yet. Upload material to generate your plan.</article>}
+
+          {/* Summary card */}
+          {todaySessions.length > 0 && (
+            <article className="card p-4 bg-blue-50 border border-blue-200">
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-slate-900">
+                    {completedToday}/{todaySessions.length}
+                  </p>
+                  <p className="text-xs text-slate-600">sessions done today</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-bold text-slate-900">{remainingMinutes}m</p>
+                  <p className="text-xs text-slate-600">left today</p>
+                </div>
+              </div>
+              <div className="mt-3 h-2 bg-blue-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 transition-all"
+                  style={{ width: `${todaySessions.length > 0 ? (completedToday / todaySessions.length) * 100 : 0}%` }}
+                />
+              </div>
+            </article>
+          )}
+
+          {/* Sessions timeline */}
+          {todaySessions.length > 0 ? (
+            <div className="relative pl-12">
+              {/* Timeline line */}
+              <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-200" />
+
+              {todaySessions.map((session, index) => {
+                const derivedStatus = session.status === 'completed' ? 'completed' : activeSessions[session.id] ? 'in_progress' : 'not_started';
+                const module = modules.find((m) => m.id === session.module_id);
+
+                return (
+                  <div key={session.id} className="relative mb-4 last:mb-0">
+                    {/* Timeline dot */}
+                    <div
+                      className={`absolute -left-8 top-4 w-4 h-4 rounded-full border-2 transition-all ${
+                        derivedStatus === 'completed'
+                          ? 'bg-emerald-500 border-emerald-600'
+                          : derivedStatus === 'in_progress'
+                            ? 'bg-lime-400 border-slate-900'
+                            : 'bg-white border-slate-300'
+                      }`}
+                    />
+
+                    {/* Session card */}
+                    <div
+                      className={`p-3 rounded-lg border transition cursor-pointer ${
+                        derivedStatus === 'in_progress'
+                          ? 'bg-slate-900 border-slate-800 text-white'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex gap-2 items-center mb-1">
+                            <span className="text-xs font-mono font-bold uppercase tracking-wide text-slate-500">
+                              {derivedStatus === 'in_progress' ? (
+                                <span className="text-lime-400">Now</span>
+                              ) : (
+                                session.session_date
+                              )}
+                            </span>
+                            <span className="text-xs font-mono opacity-70">{session.planned_minutes}m</span>
+                          </div>
+                          <p className="font-semibold text-sm">{module?.name || session.module_id}</p>
+                          <p className="text-xs opacity-75 mt-0.5">{session.unit_id}</p>
+                        </div>
+                        {derivedStatus === 'in_progress' && (
+                          <button
+                            onClick={() => {
+                              setSelectedSession(session);
+                              setTab('timer');
+                            }}
+                            className="px-3 py-1 bg-lime-400 text-slate-900 text-xs font-bold rounded hover:bg-lime-300 transition whitespace-nowrap"
+                          >
+                            Start →
+                          </button>
+                        )}
+                        {derivedStatus === 'completed' && (
+                          <svg className="w-5 h-5 text-emerald-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path
+                              fillRule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        )}
+                      </div>
+
+                      {/* Actions for non-started or in-progress */}
+                      {derivedStatus !== 'completed' && (
+                        <div className="flex gap-2 mt-3">
+                          {derivedStatus !== 'in_progress' && (
+                            <button
+                              onClick={() => handleStart(session.id)}
+                              className="flex-1 px-2 py-1 text-xs font-semibold border border-slate-300 rounded hover:bg-slate-50 transition"
+                            >
+                              Start
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleComplete(session)}
+                            className="flex-1 px-2 py-1 text-xs font-semibold bg-slate-100 rounded hover:bg-slate-200 transition"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <article className="card text-sm text-slate-600 text-center py-8">No sessions yet. Upload material to generate your plan.</article>
+          )}
         </section>
       )}
 
@@ -350,10 +560,28 @@ export function App() {
               progress={module.progress}
               remainingMinutes={module.remainingMinutes}
               nextDeadline={module.nextDeadline}
+              onClick={() => {
+                setSelectedModuleId(module.id);
+                setTab('module_detail');
+              }}
             />
           ))}
         </section>
       )}
+
+      {tab === 'timer' && <TimerView session={selectedSession} module={modules.find((m) => m.id === selectedSession?.module_id)} onClose={() => setTab('today')} onComplete={(sessionId) => handleComplete(todaySessions.find((s) => s.id === sessionId)!)} />}
+
+      {tab === 'calendar' && <CalendarView weekSessions={weekSessions} assessments={assessments} />}
+
+      {tab === 'module_detail' && (
+        <ModuleDetailView
+          module={modules.find((m) => m.id === selectedModuleId)!}
+          content={moduleDetails[selectedModuleId]?.content}
+          onBack={() => setTab('modules')}
+        />
+      )}
+
+      {tab === 'assessments' && <AssessmentsView assessments={assessments} modules={modules} />}
 
       {tab === 'upload' && (
         <UploadSection
@@ -375,15 +603,27 @@ export function App() {
         onSubmit={handleFeedbackSubmit}
       />
 
-      <nav className="fixed bottom-0 left-0 right-0 mx-auto flex w-full max-w-md justify-around border-t border-slate-200 bg-white px-2 py-2">
+      <nav className="fixed bottom-0 left-0 right-0 mx-auto flex w-full max-w-md justify-around border-t border-slate-200 bg-white px-2 py-2 overflow-x-auto">
         {[
           ['dashboard', 'Dashboard'],
           ['today', 'Today'],
+          ['timer', 'Timer'],
           ['week', 'Week'],
+          ['calendar', 'Calendar'],
           ['modules', 'Modules'],
+          ['assessments', 'Assessments'],
           ['upload', 'Upload'],
         ].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key as Tab)} className={`rounded-lg px-3 py-2 text-xs ${tab === key ? 'bg-brand-100 text-brand-700' : 'text-slate-500'}`}>
+          <button
+            key={key}
+            onClick={() => {
+              setTab(key as Tab);
+              if (key === 'timer' && todaySessions.length > 0) {
+                setSelectedSession(todaySessions.find((s) => s.status === 'planned') || todaySessions[0]);
+              }
+            }}
+            className={`rounded-lg px-3 py-2 text-xs whitespace-nowrap ${tab === key ? 'bg-brand-100 text-brand-700' : 'text-slate-500'}`}
+          >
             {label}
           </button>
         ))}
@@ -429,8 +669,8 @@ function UploadSection({
   modules: ModuleForm[];
   loading: boolean;
   assessments: AssessmentForm[];
-  uploadForm: { moduleId: string; pastedText: string; file?: File };
-  setUploadForm: (value: { moduleId: string; pastedText: string; file?: File }) => void;
+  uploadForm: { moduleId: string; pastedText: string; file: File | undefined };
+  setUploadForm: Dispatch<SetStateAction<{ moduleId: string; pastedText: string; file: File | undefined }>>;
   onUpload: () => Promise<void>;
   onAssessment: (assessment: AssessmentForm) => Promise<void>;
   details?: { content?: ModuleContentResponse; totalMinutes: number };
