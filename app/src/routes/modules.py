@@ -6,7 +6,14 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.src.models import Assessment, Module, ModuleType
 from app.src.models.services.ingestion_service import upload_and_ingest
-from app.storage import add_assessment, add_module, get_module_content, get_module_study_units, get_user
+from app.storage import (
+    add_assessment,
+    add_module,
+    get_learning_units_for_module,
+    get_module_content,
+    get_module_study_units,
+    get_user,
+)
 
 router = APIRouter(tags=["modules"])
 
@@ -67,3 +74,29 @@ def module_content_endpoint(module_id: str) -> dict:
 @router.get("/modules/{module_id}/study-units")
 def module_units_endpoint(module_id: str) -> dict:
     return get_module_study_units(module_id)
+
+
+@router.get("/modules/{module_id}/structure")
+def module_structure_endpoint(module_id: str) -> dict:
+    lus = get_learning_units_for_module(module_id)
+    return {
+        "module_id": module_id,
+        "learning_units": [
+            {
+                "id": lu.id,
+                "ordinal": lu.ordinal,
+                "topic": lu.topic,
+                "subtopics": [
+                    {
+                        "id": s.id,
+                        "ordinal": s.ordinal,
+                        "title": s.title,
+                        "word_count": s.word_count,
+                        "effort_score": s.effort_score,
+                    }
+                    for s in lu.subtopics
+                ],
+            }
+            for lu in lus
+        ],
+    }

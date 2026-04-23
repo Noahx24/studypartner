@@ -7,7 +7,19 @@ from itertools import count
 import math
 import re
 
-from app.src.models import Module, ModuleType, Pace, Session, StudyUnit, UnitStatus, User, WeeklyModuleSummary, WeeklyPlan
+from app.src.models import (
+    LearningUnit,
+    Module,
+    ModuleType,
+    Pace,
+    Session,
+    StudyUnit,
+    Subtopic,
+    UnitStatus,
+    User,
+    WeeklyModuleSummary,
+    WeeklyPlan,
+)
 
 
 PACE_MINUTES_PER_500_WORDS = {Pace.slow: 30, Pace.normal: 22, Pace.fast: 16}
@@ -166,3 +178,89 @@ def reschedule(user: User, modules: list[Module], units: list[StudyUnit], deadli
     new_plan = generate_sessions(user, modules, remaining_units, deadlines, from_date)
     new_plan.sessions = locked + new_plan.sessions
     return new_plan
+
+
+# ---- Unit-continuous planner for the new LearningUnit/Subtopic model ----
+
+def effort_to_minutes(effort_score: float, pace: Pace, custom: int | None, multiplier: float) -> int:
+    """Convert a subtopic's effort score into scheduled minutes.
+
+    effort_score = word_count/500 + resource_weight (§4 of the spec).
+    Minutes = effort * pace_baseline * multiplier, rounded to the nearest 5.
+    """
+    base = custom if (pace == Pace.custom and custom) else PACE_MINUTES_PER_500_WORDS[pace]
+    raw = max(20.0, effort_score * base * max(0.7, min(1.5, multiplier)))
+    return max(20, int(math.ceil(raw / 5) * 5))
+
+
+def compute_plan_from_subtopics(
+    user: User,
+    module_id: str,
+    learning_units: list[LearningUnit],
+    selected_subtopic_ids: set[str],
+    start_date: date | None = None,
+    user_multiplier: float = 1.0,
+) -> list[dict]:
+    """Generate a unit-continuous daily plan for one module.
+
+    INVARIANT: a Learning Unit spans multiple days; days represent PROGRESS
+    within the unit, never separate topics. The planner finishes every
+    subtopic of LU N before any subtopic of LU N+1.
+    """
+    daily_cap = min(int(user.hours_per_day * 60), int(user.max_daily_hours * 60))
+    if daily_cap < 20:
+        daily_cap = 20
+
+    cursor = start_date or date.today()
+    # advance to the first studying day
+    while cursor.weekday() >= user.days_per_week:
+        cursor += timedelta(days=1)
+
+    plan: list[dict] = []
+    used_today = 0
+
+    for lu in sorted(learning_units, key=lambda x: x.ordinal):
+        lu_subs = [s for s in sorted(lu.subtopics, key=lambda s: s.ordinal) if s.id in selected_subtopic_ids]
+        for sub in lu_subs:
+            minutes_left = effort_to_minutes(sub.effort_score, user.pace, user.custom_minutes_per_500_words, user_multiplier)
+            while minutes_left > 0:
+                room = daily_cap - used_today
+                if room < 20:
+                    cursor = _advance_day(cursor, user)
+                    used_today = 0
+                    continue
+                alloc = int(math.floor(min(minutes_left, room, 90) / 5) * 5)
+                if alloc < 20:
+                    cursor = _advance_day(cursor, user)
+                    used_today = 0
+                    continue
+                plan.append({
+                    "date": cursor.isoformat(),
+                    "module_id": module_id,
+                    "learning_unit_id": lu.id,
+                    "learning_unit_topic": lu.topic,
+                    "subtopic_id": sub.id,
+                    "subtopic_title": sub.title,
+                    "planned_minutes": alloc,
+                })
+                used_today += alloc
+                minutes_left -= alloc
+    return plan
+
+
+def _advance_day(cursor: date, user: User) -> date:
+    nxt = cursor + timedelta(days=1)
+    while nxt.weekday() >= user.days_per_week:
+        nxt += timedelta(days=1)
+    return nxt
+
+
+def apply_deadline_pressure(plan: list[dict], deadlines: dict[str, date]) -> list[dict]:
+    """If any planned entry for a module lands after that module's deadline,
+    pull them earlier by marking them `at_risk=True`. Caller can decide whether
+    to compact (currently informational)."""
+    for entry in plan:
+        dl = deadlines.get(entry["module_id"])
+        if dl and date.fromisoformat(entry["date"]) > dl:
+            entry["at_risk"] = True
+    return plan

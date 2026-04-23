@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest app/src/tests/ -q)",
+      "Bash(python -m pytest app/src/tests/test_pipeline.py -q)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}
