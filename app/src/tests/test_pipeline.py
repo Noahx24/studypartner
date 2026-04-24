@@ -3,7 +3,7 @@ ingest → structure → selection → plan → pack.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from app.src.utils.time import utcnow_aware
 import gzip
 import json
 import uuid
@@ -112,7 +112,7 @@ def test_pack_generation_end_to_end_and_cached():
         subtopic_ids=sub_ids,
         ai_features=AIFeatureSet(),
         low_data_mode=False,
-        updated_at=datetime.utcnow(),
+        updated_at=utcnow_aware(),
     )
     upsert_selection(selection)
 
@@ -148,7 +148,7 @@ def test_ai_gating_respects_selection():
         subtopic_ids=[some_sub.id],
         ai_features=AIFeatureSet(summaries=False, subtopic_quiz=True, topic_quiz=False),
         low_data_mode=False,
-        updated_at=datetime.utcnow(),
+        updated_at=utcnow_aware(),
     )
     svc = AIService()
     try:

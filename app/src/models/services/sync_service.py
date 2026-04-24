@@ -12,7 +12,7 @@ Conflict policy:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from app.src.utils.time import utcnow_aware, utcnow_iso
 from typing import Any
 
 from app.storage import (
@@ -66,7 +66,7 @@ def apply(user_id: str, ops: list[dict[str, Any]], last_pulled_at: str | None) -
         "applied": applied,
         "conflicts": conflicts,
         "changes_since": changes,
-        "now": datetime.utcnow().isoformat(),
+        "now": utcnow_iso(),
     }
 
 
@@ -88,7 +88,7 @@ def _dispatch(entity: str | None, entity_id: str | None, action: str | None, pay
                 topic_quiz=bool(features.get("topic_quiz", True)),
             ),
             low_data_mode=bool(payload.get("low_data_mode", False)),
-            updated_at=datetime.utcnow(),
+            updated_at=utcnow_aware(),
         )
         upsert_selection(selection)
         return

@@ -1,5 +1,9 @@
+from contextlib import asynccontextmanager
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.src.routes.ai import router as ai_router
 from app.src.routes.modules import router as modules_router
 from app.src.routes.moodle import router as moodle_router
@@ -10,25 +14,33 @@ from app.src.routes.sync import router as sync_router
 from app.src.routes.users import router as users_router
 from app.storage import init_db
 
-app = FastAPI(title="StudyPartner Backend", version="2.0.0")
+
+def _parse_origins() -> list[str]:
+    """Comma-separated origin list from STUDYPARTNER_CORS_ORIGINS.
+
+    Defaults to the Vite dev server for local work. Production deployments
+    MUST set an explicit allowlist — never leave this as "*" for a credentialed
+    API.
+    """
+    raw = os.environ.get("STUDYPARTNER_CORS_ORIGINS", "http://localhost:5173")
+    return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-origins = [
-    "http://localhost:5173",
-]
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="StudyPartner Backend", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=_parse_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
 
 
 @app.get("/health")

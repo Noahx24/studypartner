@@ -9,12 +9,14 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
 from datetime import date, datetime
 import json
+import re
 from typing import Any
 import urllib.parse
 import urllib.request
+
+from app.src.utils.time import utcnow_aware
 
 from app.src.models import (
     Assessment,
@@ -206,7 +208,7 @@ def sync(user_id: str) -> dict:
                 # Duplicate inserts / already-present assessments are ignored
                 continue
 
-    now = datetime.utcnow()
+    now = utcnow_aware()
     update_moodle_sync_time(user_id, now)
     return {
         "modules_synced": len(modules_added),
@@ -276,4 +278,3 @@ def _parse_ics_date(raw: str) -> date | None:
     return None
 
 
-import re  # placed low to avoid confusion with urllib imports above

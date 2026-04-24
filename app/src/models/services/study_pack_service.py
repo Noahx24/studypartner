@@ -7,7 +7,7 @@ Flow:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from app.src.utils.time import utcnow_iso
 import gzip
 import json
 import uuid
@@ -70,7 +70,7 @@ def build_pack(pack_id: str, *, ai_service: AIService | None = None) -> None:
             "module_id": selection.module_id,
             "module_name": module_name,
             "version": pack.version,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utcnow_iso(),
             "low_data_mode": selection.low_data_mode,
             "learning_units": [],
         }

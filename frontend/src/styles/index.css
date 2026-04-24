@@ -2,28 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light;
+  --ink: #0B0E14;
+  --ink2: #4A4E5A;
+  --ink3: #8A8E99;
+  --line: #E8E6DE;
+  --app: #F5F5F1;
+  --surface: #FFFFFF;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
 body {
-  @apply bg-app text-slate-900 antialiased;
+  background: var(--app);
+  color: var(--ink);
+  font-family: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
 }
 
-@layer utilities {
-  .bg-app {
-    background: linear-gradient(180deg, #f9fbff 0%, #f4f7fd 100%);
+input[type="range"] { -webkit-appearance: none; background: transparent; }
+input[type="range"]::-webkit-slider-runnable-track { height: 6px; background: var(--line); border-radius: 3px; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 24px; height: 24px; border-radius: 12px;
+  background: var(--ink); margin-top: -9px; border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+@keyframes sp-pulse { 0%,100% { opacity: 0.35; transform: scale(1); } 50% { opacity: 0.1; transform: scale(1.18); } }
+@keyframes sp-spin  { to { transform: rotate(360deg); } }
+.sp-pulse { animation: sp-pulse 2s infinite; }
+.sp-spin  { animation: sp-spin 2s linear infinite; }
+
+.hide-scroll::-webkit-scrollbar { display: none; }
+.hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+@layer components {
+  .card {
+    @apply rounded-card border border-line bg-surface p-[18px] shadow-card;
   }
-}
-
-.card {
-  @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm;
-}
-
-.btn-primary {
-  @apply inline-flex items-center justify-center rounded-xl bg-brand-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60;
-}
-
-.btn-secondary {
-  @apply inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60;
-}
-
-.input {
-  @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none;
+  .card-inner {
+    @apply rounded-inner border border-line bg-surface;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-[14px] bg-ink px-4 py-3 text-[15px] font-semibold text-surface transition active:opacity-90 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-[12px] border border-line bg-surface px-4 py-[10px] text-[13px] font-semibold text-ink transition active:bg-app disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-lime {
+    @apply inline-flex items-center justify-center gap-2 rounded-[14px] bg-lime px-4 py-3 text-[15px] font-bold text-lime-ink transition active:opacity-90 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .input {
+    @apply w-full rounded-[14px] border border-line bg-surface px-4 py-3 text-[15px] text-ink placeholder:text-ink3 focus:border-ink focus:outline-none;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-[10px] py-1 text-xs font-semibold;
+  }
+  .mono { font-family: "Geist Mono", ui-monospace, SFMono-Regular, monospace; }
 }

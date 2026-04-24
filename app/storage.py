@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import sqlite3
 
+from .src.utils.time import utcnow_aware, utcnow_iso
+
 from .src.models import (
     AIArtifact,
     AIFeatureSet,
@@ -312,7 +314,7 @@ def add_feedback(user_id: str, session_id: str, study_unit_id: str, estimated_ti
             INSERT INTO session_feedback (user_id, session_id, study_unit_id, estimated_time_minutes, actual_time_minutes, ratio, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, session_id, study_unit_id, estimated_time_minutes, actual_time_minutes, ratio, datetime.utcnow().isoformat()),
+            (user_id, session_id, study_unit_id, estimated_time_minutes, actual_time_minutes, ratio, utcnow_iso()),
         )
 
 
@@ -340,10 +342,27 @@ def get_modules(user_id: str) -> list[Module]:
 
 
 def add_assessment(assessment: Assessment) -> None:
+    """Idempotent insert. Re-submitting the same assessment id (e.g. a retried
+    Moodle sync, or a client-side replay after a network blip) no longer raises
+    IntegrityError — it updates the mutable fields instead."""
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO assessments (id, module_id, title, due_date, weight) VALUES (?, ?, ?, ?, ?)",
-            (assessment.id, assessment.module_id, assessment.title, assessment.due_date.isoformat(), assessment.weight),
+            """
+            INSERT INTO assessments (id, module_id, title, due_date, weight)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                module_id = excluded.module_id,
+                title     = excluded.title,
+                due_date  = excluded.due_date,
+                weight    = excluded.weight
+            """,
+            (
+                assessment.id,
+                assessment.module_id,
+                assessment.title,
+                assessment.due_date.isoformat(),
+                assessment.weight,
+            ),
         )
 
 
@@ -365,7 +384,7 @@ def get_assessment_due_date(module_id: str) -> date:
 
 def save_upload(user_id: str, module_id: str, filename: str, content: bytes, raw_text: str, page_count: int | None) -> str:
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-    target = UPLOAD_ROOT / f"{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_{filename}"
+    target = UPLOAD_ROOT / f"{utcnow_aware().strftime('%Y%m%d%H%M%S%f')}_{filename}"
     target.write_bytes(content)
 
     with get_connection() as conn:
@@ -374,7 +393,7 @@ def save_upload(user_id: str, module_id: str, filename: str, content: bytes, raw
             INSERT INTO uploads (user_id, module_id, filename, filepath, raw_text, page_count, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, module_id, filename, str(target), raw_text, page_count, datetime.utcnow().isoformat()),
+            (user_id, module_id, filename, str(target), raw_text, page_count, utcnow_iso()),
         )
     return str(target)
 
@@ -539,7 +558,7 @@ def get_module_study_units(module_id: str) -> dict:
 # ---- Learning units & subtopics ----
 
 def replace_learning_units(module_id: str, units: list[LearningUnit]) -> None:
-    now = datetime.utcnow().isoformat()
+    now = utcnow_iso()
     with get_connection() as conn:
         conn.execute(
             "DELETE FROM subtopics WHERE learning_unit_id IN (SELECT id FROM learning_units WHERE module_id = ?)",
@@ -781,7 +800,7 @@ def update_pack(pack_id: str, *, status: PackStatus, payload: bytes | None = Non
                 status.value,
                 payload,
                 len(payload) if payload else None,
-                datetime.utcnow().isoformat() if status == PackStatus.generated else None,
+                utcnow_iso() if status == PackStatus.generated else None,
                 error,
                 status.value,
                 pack_id,
@@ -948,7 +967,7 @@ def record_sync_op(user_id: str, op_id: str, entity: str, entity_id: str, op: st
             INSERT OR IGNORE INTO sync_log (user_id, op_id, entity, entity_id, op, payload, applied_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, op_id, entity, entity_id, op, json.dumps(payload), datetime.utcnow().isoformat()),
+            (user_id, op_id, entity, entity_id, op, json.dumps(payload), utcnow_iso()),
         )
 
 

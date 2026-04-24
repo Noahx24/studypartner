@@ -1,119 +1,127 @@
 import { useEffect, useState } from 'react';
-import type { StudySession } from '../types';
+import { Icon } from '../ui/Icon';
+import { P, MONO, moduleColor } from '../ui/tokens';
+import type { ModuleForm, StudySession } from '../types';
 
-interface TimerViewProps {
-  session: StudySession | null;
-  module?: { name: string; id: string };
+type Props = {
+  session: StudySession;
+  module?: ModuleForm;
   onClose: () => void;
-  onComplete: (sessionId: string) => void;
-}
+  onComplete: () => Promise<void>;
+};
 
-export function TimerView({ session, module, onClose, onComplete }: TimerViewProps) {
-  const [remaining, setRemaining] = useState<number>(0);
+export function TimerView({ session, module, onClose, onComplete }: Props) {
+  const totalSec = session.planned_minutes * 60;
+  const [remaining, setRemaining] = useState(totalSec);
   const [running, setRunning] = useState(true);
 
   useEffect(() => {
-    if (!session) return;
-    // Start at mid-session for demo (can be parameterized)
-    setRemaining(Math.max(0, session.planned_minutes * 60 - 640));
-  }, [session]);
+    if (!running) return;
+    const t = setInterval(() => setRemaining((r) => Math.max(0, r - 1)), 1000);
+    return () => clearInterval(t);
+  }, [running]);
 
-  useEffect(() => {
-    if (!running || remaining <= 0) return;
-    const timer = setInterval(() => setRemaining((r) => Math.max(0, r - 1)), 1000);
-    return () => clearInterval(timer);
-  }, [running, remaining]);
-
-  if (!session) return null;
-
-  const totalSec = session.planned_minutes * 60;
   const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
   const ss = String(remaining % 60).padStart(2, '0');
   const pct = 1 - remaining / totalSec;
-
-  // Calculate ring progress
-  const radius = 130;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference * (1 - pct);
+  const c = moduleColor(session.module_id);
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-slate-900 text-white">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-6">
-        <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+    <div
+      className="fixed inset-0 z-50 flex flex-col"
+      style={{ background: P.ink, color: P.surface }}
+    >
+      <div className="flex items-center justify-between px-5 pt-[62px]">
+        <button
+          onClick={onClose}
+          className="-m-2 p-2 active:opacity-70"
+          aria-label="Close"
+        >
+          <Icon name="close" size={24} color={P.surface} />
         </button>
-        <div className="text-xs tracking-wide opacity-50 font-mono">FOCUS · {session?.unit_id.toUpperCase()}</div>
+        <div
+          className="mono text-xs tracking-wider"
+          style={{ color: 'rgba(255,255,255,0.5)', fontFamily: MONO }}
+        >
+          FOCUS MODE
+        </div>
         <div className="w-6" />
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4">
-        {/* Module badge */}
-        <div className="mb-12 text-center">
-          <div className="text-xs font-mono font-bold opacity-60 tracking-wide mb-2">{module?.id || 'Module'}</div>
-          <div className="text-xl font-semibold max-w-xs">{module?.name || session.unit_id}</div>
+      <div className="flex flex-1 flex-col items-center justify-center px-5">
+        <div className="mb-10 flex flex-col items-center gap-2">
+          <div
+            className="mono text-[12px] font-bold tracking-wider"
+            style={{ color: c.solid, fontFamily: MONO }}
+          >
+            {session.module_id}
+          </div>
+          <div className="max-w-[260px] text-center text-[20px] font-semibold tracking-[-0.3px]">
+            {module?.name ?? session.module_id}
+          </div>
         </div>
 
-        {/* Big ring timer */}
-        <div className="relative w-72 h-72">
-          <svg width="280" height="280" className="transform -rotate-90">
-            <circle cx="140" cy="140" r={radius} stroke="rgba(255,255,255,0.08)" strokeWidth="6" fill="none" />
+        <div className="relative h-[280px] w-[280px]">
+          <svg width={280} height={280} style={{ transform: 'rotate(-90deg)' }}>
+            <circle cx={140} cy={140} r={130} stroke="rgba(255,255,255,0.08)" strokeWidth={6} fill="none" />
             <circle
-              cx="140"
-              cy="140"
-              r={radius}
-              stroke="#D8F26A"
-              strokeWidth="6"
+              cx={140}
+              cy={140}
+              r={130}
+              stroke={P.lime}
+              strokeWidth={6}
               fill="none"
               strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={strokeDashoffset}
+              strokeDasharray={2 * Math.PI * 130}
+              strokeDashoffset={2 * Math.PI * 130 * (1 - pct)}
               style={{ transition: 'stroke-dashoffset 1s linear' }}
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="font-mono text-6xl font-medium tracking-tighter">
+            <div
+              className="mono font-medium leading-none text-white"
+              style={{ fontFamily: MONO, fontSize: 72, letterSpacing: '-4px' }}
+            >
               {mm}:{ss}
             </div>
-            <div className="text-xs opacity-50 font-mono mt-2">of {session.planned_minutes}:00</div>
+            <div
+              className="mono mt-2 text-xs tracking-wider"
+              style={{ color: 'rgba(255,255,255,0.5)', fontFamily: MONO }}
+            >
+              of {session.planned_minutes}:00
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="flex gap-3 items-center justify-center px-4 pb-12">
-        <button className="w-14 h-14 rounded-full border border-white border-opacity-15 hover:bg-white hover:bg-opacity-10 flex items-center justify-center">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        </button>
+      <div className="flex items-center justify-center gap-4 px-6 pb-11 pt-2">
+        <CircleBtn onClick={() => setRemaining(totalSec)}>
+          <Icon name="refresh" size={20} color={P.surface} />
+        </CircleBtn>
         <button
           onClick={() => setRunning(!running)}
-          className="w-20 h-20 rounded-full bg-lime-400 text-slate-900 flex items-center justify-center hover:bg-lime-300"
+          className="flex h-[84px] w-[84px] items-center justify-center rounded-full transition-transform active:scale-95"
+          style={{ background: P.lime, color: P.limeInk }}
+          aria-label={running ? 'Pause' : 'Resume'}
         >
-          {running ? (
-            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-              <rect x="6" y="4" width="4" height="16" rx="1" />
-              <rect x="14" y="4" width="4" height="16" rx="1" />
-            </svg>
-          ) : (
-            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          )}
+          <Icon name={running ? 'pause' : 'play'} size={32} color={P.limeInk} />
         </button>
-        <button
-          onClick={() => onComplete(session.id)}
-          className="w-14 h-14 rounded-full border border-white border-opacity-15 hover:bg-white hover:bg-opacity-10 flex items-center justify-center"
-        >
-          <svg className="w-5 h-5 text-lime-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-          </svg>
-        </button>
+        <CircleBtn onClick={onComplete}>
+          <Icon name="check" size={20} color={P.surface} />
+        </CircleBtn>
       </div>
     </div>
+  );
+}
+
+function CircleBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex h-14 w-14 items-center justify-center rounded-full transition-transform active:scale-95"
+      style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)' }}
+    >
+      {children}
+    </button>
   );
 }

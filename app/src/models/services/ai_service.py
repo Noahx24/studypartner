@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+
+from app.src.utils.time import utcnow_aware
 import hashlib
 import os
 import re
@@ -243,7 +245,7 @@ class AIService:
             prompt_hash=prompt_hash,
             payload=payload,
             model=self.model or "unknown",
-            created_at=datetime.utcnow(),
+            created_at=utcnow_aware(),
         )
         save_ai_artifact(artifact)
         return payload

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Literal
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Pace(str, Enum):
@@ -132,7 +136,7 @@ class UserSelection:
     subtopic_ids: list[str]
     ai_features: AIFeatureSet
     low_data_mode: bool = False
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=_utcnow)
 
 
 @dataclass
@@ -144,7 +148,7 @@ class AIArtifact:
     prompt_hash: str
     payload: dict
     model: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utcnow)
 
 
 @dataclass

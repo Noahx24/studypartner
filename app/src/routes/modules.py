@@ -17,6 +17,11 @@ from app.storage import (
 
 router = APIRouter(tags=["modules"])
 
+# Reject uploads over 10 MB. Larger files push PDF parsing into multi-second
+# CPU burns that block the event loop and risk filling disk.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+ALLOWED_EXTS = (".pdf", ".docx", ".txt")
+
 
 @router.post("/modules")
 def add_module_endpoint(payload: dict) -> dict:
@@ -59,7 +64,23 @@ async def upload_content_endpoint(
         raise HTTPException(status_code=400, detail="Provide file or pasted_text")
 
     filename = file.filename if file else "pasted_text.txt"
-    file_content = await file.read() if file else b""
+    if file is not None:
+        if not filename.lower().endswith(ALLOWED_EXTS):
+            raise HTTPException(
+                status_code=415,
+                detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTS)}",
+            )
+        file_content = await file.read()
+        if len(file_content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (>{MAX_UPLOAD_BYTES // (1024 * 1024)}MB)",
+            )
+    else:
+        file_content = b""
+        if pasted_text and len(pasted_text) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Pasted text too large")
+
     try:
         return upload_and_ingest(user, module_id, module_name, module_type, filename, file_content, pasted_text)
     except ValueError as exc:

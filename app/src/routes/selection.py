@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 import uuid
 
 from fastapi import APIRouter, HTTPException
 
 from app.src.models import AIFeatureSet, UserSelection
+from app.src.utils.time import utcnow_aware
 from app.storage import get_selection, get_latest_selection, upsert_selection
 
 router = APIRouter(prefix="/selection", tags=["selection"])
@@ -26,7 +26,7 @@ def create_selection(payload: dict) -> dict:
                 topic_quiz=bool(features.get("topic_quiz", True)),
             ),
             low_data_mode=bool(payload.get("low_data_mode", False)),
-            updated_at=datetime.utcnow(),
+            updated_at=utcnow_aware(),
         )
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=f"Missing field: {exc.args[0]}") from exc

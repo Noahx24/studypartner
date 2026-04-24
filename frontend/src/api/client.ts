@@ -14,31 +14,80 @@ import { isoDate, startOfWeek } from '../utils/date';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
-const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...init?.headers,
-    },
-    ...init,
-  });
+// Timeouts stop the UI hanging indefinitely on a flaky connection and make
+// offline states recoverable. Pack downloads are longer because they stream.
+const DEFAULT_TIMEOUT_MS = 15_000;
+const DOWNLOAD_TIMEOUT_MS = 45_000;
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed for ${path}`);
+class NetworkError extends Error {}
+class TimeoutError extends Error {}
+
+function friendlyError(err: unknown, path: string): Error {
+  if (err instanceof TimeoutError) return new Error('Request timed out — check your connection.');
+  if (err instanceof NetworkError) return new Error("Can't reach the server. You may be offline.");
+  if (err instanceof Error) return err;
+  return new Error(`Request failed for ${path}`);
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (err) {
+    if ((err as { name?: string }).name === 'AbortError') {
+      throw new TimeoutError();
+    }
+    // `fetch` throws TypeError on network failure
+    if (err instanceof TypeError) throw new NetworkError(err.message);
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  return response.json() as Promise<T>;
+const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  try {
+    const response = await fetchWithTimeout(
+      `${API_BASE}${path}`,
+      {
+        headers: {
+          ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+          ...init?.headers,
+        },
+        ...init,
+      },
+      DEFAULT_TIMEOUT_MS,
+    );
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(text || `Request failed (${response.status})`);
+    }
+    return (await response.json()) as T;
+  } catch (err) {
+    throw friendlyError(err, path);
+  }
 };
 
-const requestBytes = async (path: string): Promise<{ bytes: Uint8Array; etag: string | null }> => {
-  const response = await fetch(`${API_BASE}${path}`);
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed for ${path}`);
+const requestBytes = async (
+  path: string,
+): Promise<{ bytes: Uint8Array; etag: string | null }> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE}${path}`, {}, DOWNLOAD_TIMEOUT_MS);
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(text || `Request failed (${response.status})`);
+    }
+    const buf = await response.arrayBuffer();
+    return { bytes: new Uint8Array(buf), etag: response.headers.get('ETag') };
+  } catch (err) {
+    throw friendlyError(err, path);
   }
-  const buf = await response.arrayBuffer();
-  return { bytes: new Uint8Array(buf), etag: response.headers.get('ETag') };
 };
 
 export const api = {
@@ -58,6 +107,12 @@ export const api = {
   getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
 
   createModule: (userId: string, module: ModuleForm) =>
+    request<{ status: string; module_id: string }>('/modules', {
+      method: 'POST',
+      body: JSON.stringify({ ...module, user_id: userId }),
+    }),
+
+  updateOrCreateModule: (userId: string, module: ModuleForm) =>
     request<{ status: string; module_id: string }>('/modules', {
       method: 'POST',
       body: JSON.stringify({ ...module, user_id: userId }),

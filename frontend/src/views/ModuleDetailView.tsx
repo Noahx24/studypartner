@@ -1,127 +1,211 @@
-import type { ModuleContentResponse, ModuleForm, StudyUnitsResponse } from '../types';
+import { Card, Chip, SectionLabel, StatCell } from '../ui/primitives';
+import { Icon } from '../ui/Icon';
+import { P, MONO, moduleColor } from '../ui/tokens';
+import type { AssessmentForm, ModuleContentResponse, ModuleForm } from '../types';
 
-interface ModuleDetailViewProps {
-  module: ModuleForm;
-  content?: ModuleContentResponse;
-  units?: StudyUnitsResponse;
-  onBack?: () => void;
-}
+type Props = {
+  module?: ModuleForm;
+  detail?: { content?: ModuleContentResponse; totalMinutes: number };
+  assessments: AssessmentForm[];
+  onBack: () => void;
+  onPlan: () => void;
+  onPacks: () => void;
+  onUpload: () => void;
+};
 
-export function ModuleDetailView({ module, content, units, onBack }: ModuleDetailViewProps) {
-  const totalMinutes = units?.study_units.reduce((sum, u) => sum + u.estimated_minutes, 0) || 0;
-  const completedUnits = units?.study_units.filter((u) => u.status === 'completed').length || 0;
-  const totalUnits = units?.study_units.length || 0;
-  const progress = totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0;
+export function ModuleDetailView({
+  module,
+  detail,
+  assessments,
+  onBack,
+  onPlan,
+  onPacks,
+  onUpload,
+}: Props) {
+  if (!module) {
+    return (
+      <div className="p-6 text-center text-sm text-ink2">Module not found.</div>
+    );
+  }
+  const c = moduleColor(module.id);
+  const topics = detail?.content?.topics ?? [];
+  const nextAssess = [...assessments].sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
 
   return (
-    <div className="pb-24">
-      {/* Header */}
-      <div className="px-4 py-6 border-b border-slate-200">
-        <div className="flex items-center gap-3 mb-4">
-          {onBack && (
-            <button onClick={onBack} className="p-2 -m-2 hover:bg-slate-100 rounded-lg">
-              <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-          )}
-          <div className="flex-1">
-            <p className="text-xs font-mono text-slate-500 font-bold uppercase mb-1 tracking-wide">{module.id}</p>
-            <h1 className="text-2xl font-bold text-slate-900">{module.name}</h1>
-          </div>
-        </div>
-
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-slate-50 rounded-lg p-3">
-            <p className="text-xs text-slate-500 font-mono font-bold uppercase mb-1">Progress</p>
-            <p className="text-lg font-bold text-slate-900">{progress}%</p>
-          </div>
-          <div className="bg-slate-50 rounded-lg p-3">
-            <p className="text-xs text-slate-500 font-mono font-bold uppercase mb-1">Time</p>
-            <p className="text-lg font-bold text-slate-900">{Math.round(totalMinutes / 60)}h</p>
-          </div>
-          <div className="bg-slate-50 rounded-lg p-3">
-            <p className="text-xs text-slate-500 font-mono font-bold uppercase mb-1">Units</p>
-            <p className="text-lg font-bold text-slate-900">
-              {completedUnits}/{totalUnits}
-            </p>
-          </div>
-        </div>
+    <div className="min-h-full pb-28">
+      <div
+        className="sticky top-0 z-10 px-5 pb-3 pt-[54px]"
+        style={{ background: P.bg }}
+      >
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 pb-3.5 text-[13px] text-ink2"
+        >
+          <Icon name="arrowLeft" size={14} /> Modules
+        </button>
       </div>
 
-      {/* Topics/Units list */}
-      <div className="px-4 py-6">
-        {content?.topics.length === 0 || !content ? (
-          <div className="text-center py-12">
-            <p className="text-slate-500 text-sm">No topics loaded yet. Upload material to get started.</p>
-          </div>
-        ) : (
-          <div>
-            <h2 className="text-xs font-mono font-bold text-slate-500 uppercase mb-3 tracking-wide">Topics ({content.topics.length})</h2>
-            <div className="space-y-2">
-              {content.topics.map((topic) => {
-                const topicUnits = units?.study_units.filter((u) => u.topic_id === topic.id) || [];
-                const completedTopicUnits = topicUnits.filter((u) => u.status === 'completed').length;
-                const topicProgress = topicUnits.length > 0 ? Math.round((completedTopicUnits / topicUnits.length) * 100) : 0;
-
-                return (
-                  <div key={topic.id} className="bg-white border border-slate-200 rounded-lg p-3 hover:border-slate-300 transition cursor-pointer">
-                    <div className="flex items-start gap-3 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-900 text-sm">{topic.title}</p>
-                        <p className="text-xs text-slate-500 font-mono mt-0.5">
-                          {topic.word_count.toLocaleString()} words · ~{Math.round(topic.word_count / 250)} min
-                        </p>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-bold text-slate-700">{topicProgress}%</p>
-                      </div>
-                    </div>
-                    {/* Progress bar */}
-                    {topicUnits.length > 0 && (
-                      <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-blue-500 rounded-full transition-all"
-                          style={{ width: `${topicProgress}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+      <div className="px-4">
+        {/* Hero */}
+        <Card variant="tinted" pad={0} style={{ background: c.bg, marginBottom: 14 }}>
+          <div className="px-5 pb-5 pt-[18px]">
+            <div className="flex items-center justify-between">
+              <div
+                className="mono text-xs font-bold tracking-wider"
+                style={{ color: c.fg, fontFamily: MONO }}
+              >
+                {module.id}
+              </div>
+              <Chip tone="ok">On track</Chip>
             </div>
+            <h1
+              className="mt-2 text-[24px] font-bold leading-tight tracking-[-0.5px] text-ink"
+            >
+              {module.name}
+            </h1>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <HeroStat label="Topics" value={String(topics.length)} />
+              <HeroStat
+                label="Time"
+                value={
+                  detail ? `${Math.round(detail.totalMinutes / 60)}h` : '—'
+                }
+              />
+              <HeroStat
+                label="Next"
+                value={nextAssess ? nextAssess.title.split(' ')[0] : '—'}
+              />
+            </div>
+          </div>
+        </Card>
+
+        {/* Primary action */}
+        <button onClick={onPlan} className="btn-primary w-full">
+          <Icon name="sparkles" size={16} color="#fff" /> Plan a study pack
+        </button>
+
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <button onClick={onPacks} className="btn-secondary w-full">
+            <Icon name="pack" size={14} /> Past packs
+          </button>
+          <button onClick={onUpload} className="btn-secondary w-full">
+            <Icon name="plus" size={14} /> Upload
+          </button>
+        </div>
+
+        <SectionLabel title="Topics" />
+        {topics.length === 0 ? (
+          <Card>
+            <p className="text-sm text-ink3">
+              No topics yet. Upload material to generate them.
+            </p>
+          </Card>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {topics.map((t, i) => (
+              <div
+                key={t.id}
+                className="flex items-center gap-3 rounded-[14px] border border-line bg-surface px-3.5 py-3"
+              >
+                <div
+                  className="mono w-6 text-[11px] font-bold text-ink3"
+                  style={{ fontFamily: MONO }}
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[14px] font-medium text-ink">
+                    {t.title}
+                  </div>
+                  <div
+                    className="mono mt-0.5 text-[11px] text-ink3"
+                    style={{ fontFamily: MONO }}
+                  >
+                    {t.word_count.toLocaleString()} words
+                    {t.page_span ? ` · ${t.page_span}p` : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* Study units breakdown */}
-        {units && units.study_units.length > 0 && (
-          <div className="mt-8">
-            <h2 className="text-xs font-mono font-bold text-slate-500 uppercase mb-3 tracking-wide">Study units</h2>
-            <div className="space-y-2">
-              {units.study_units.map((unit) => {
-                const statusColor = {
-                  completed: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-                  in_progress: 'bg-blue-50 border-blue-200 text-blue-700',
-                  not_started: 'bg-slate-50 border-slate-200 text-slate-600',
-                }[unit.status];
-
-                return (
-                  <div key={unit.id} className={`border rounded-lg p-3 ${statusColor}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className="font-semibold text-sm">{unit.title}</p>
-                        <p className="text-xs opacity-75 mt-0.5 font-mono">{unit.estimated_minutes}m estimated</p>
+        <SectionLabel title="Deadlines" />
+        {assessments.length === 0 ? (
+          <Card>
+            <p className="text-sm text-ink3">No deadlines for this module.</p>
+          </Card>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {assessments.map((a) => {
+              const due = new Date(a.due_date);
+              const days = Math.ceil((due.getTime() - Date.now()) / 86400000);
+              return (
+                <Card key={a.id} pad={14}>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="flex h-[50px] w-12 shrink-0 flex-col items-center justify-center rounded-[10px]"
+                      style={{ background: c.bg, color: c.fg }}
+                    >
+                      <div
+                        className="mono text-[10px] font-bold opacity-70"
+                        style={{ fontFamily: MONO }}
+                      >
+                        {due
+                          .toLocaleString('en-US', { month: 'short' })
+                          .toUpperCase()}
                       </div>
-                      <span className="text-xs font-bold px-2 py-1 rounded bg-white bg-opacity-50 capitalize">{unit.status.replace('_', ' ')}</span>
+                      <div
+                        className="mono text-[20px] font-extrabold leading-none"
+                        style={{ fontFamily: MONO }}
+                      >
+                        {due.getDate()}
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-ink">{a.title}</div>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <Chip tone={days <= 14 ? 'risk' : 'primary'} leadingIcon="clock">
+                          {days}d left
+                        </Chip>
+                        <span
+                          className="mono text-xs text-ink3"
+                          style={{ fontFamily: MONO }}
+                        >
+                          {Math.round(a.weight)}% of grade
+                        </span>
+                      </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>
     </div>
   );
 }
+
+function HeroStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      className="rounded-[12px] px-3 py-2.5"
+      style={{ background: 'rgba(255,255,255,0.55)' }}
+    >
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-ink2">
+        {label}
+      </div>
+      <div
+        className="mono mt-0.5 text-[18px] font-bold tracking-[-0.5px] text-ink"
+        style={{ fontFamily: MONO }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// Kept for potential reuse; silence unused-import linter in this tree.
+export { StatCell };

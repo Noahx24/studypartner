@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+
+from app.src.utils.time import utcnow_aware
 from itertools import count
 import math
 import re
@@ -169,7 +171,7 @@ def generate_sessions(user: User, modules: list[Module], units: list[StudyUnit],
         )
         for m in modules
     ]
-    return WeeklyPlan(user_id=user.id, week_start=days[0], week_end=days[-1], sessions=sessions, summaries=summaries, generated_at=datetime.utcnow())
+    return WeeklyPlan(user_id=user.id, week_start=days[0], week_end=days[-1], sessions=sessions, summaries=summaries, generated_at=utcnow_aware())
 
 
 def reschedule(user: User, modules: list[Module], units: list[StudyUnit], deadlines: dict[str, date], existing_sessions: list[Session], from_date: date) -> WeeklyPlan:
