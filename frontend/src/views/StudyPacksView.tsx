@@ -9,9 +9,9 @@ import {
   Screen,
   ScreenHeader,
   SectionLabel,
-} from '../ui/primitives';
-import { Icon } from '../ui/Icon';
-import { P, MONO } from '../ui/tokens';
+} from '../components/ui/primitives';
+import { Icon } from '../components/ui/Icon';
+import { P, MONO } from '../components/ui/tokens';
 import type { PackPayload, PackStatusResponse } from '../types';
 
 type Props = {

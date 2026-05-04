@@ -1,0 +1,93 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-heading: 'Geist', ui-sans-serif, system-ui, sans-serif;
+    --font-body: 'Geist', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+    /* Electric / Light palette */
+    --background: 40 14% 96%;        /* #F5F5F1 */
+    --foreground: 222 28% 7%;        /* #0B0E14 */
+    --card: 0 0% 100%;               /* #FFFFFF */
+    --card-foreground: 222 28% 7%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 28% 7%;
+    --primary: 229 100% 59%;         /* #2F4BFF electric blue */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 229 60% 94%;        /* #E6EAFF primarySoft */
+    --secondary-foreground: 229 100% 59%;
+    --muted: 40 14% 91%;             /* slightly darker than bg */
+    --muted-foreground: 222 10% 55%; /* #8A8E99 ink3 */
+    --accent: 72 83% 69%;            /* #D8F26A lime */
+    --accent-foreground: 84 56% 12%; /* #24300A limeInk */
+    --destructive: 12 100% 71%;      /* #FF8068 coral */
+    --destructive-foreground: 0 0% 100%;
+    --border: 42 20% 87%;            /* #E8E6DE line */
+    --input: 42 20% 87%;
+    --ring: 229 100% 59%;
+    --chart-1: 229 100% 59%;
+    --chart-2: 72 83% 69%;
+    --chart-3: 12 100% 71%;
+    --chart-4: 256 100% 77%;
+    --chart-5: 156 65% 73%;
+    --radius: 0.875rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 28% 7%;
+    --sidebar-primary: 229 100% 59%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 40 14% 93%;
+    --sidebar-accent-foreground: 222 28% 7%;
+    --sidebar-border: 42 20% 87%;
+    --sidebar-ring: 229 100% 59%;
+  }
+
+  .dark {
+    /* Dusk palette */
+    --background: 228 27% 8%;        /* #0E1018 */
+    --foreground: 228 24% 96%;       /* #F2F3F7 */
+    --card: 230 30% 12%;             /* #151826 */
+    --card-foreground: 228 24% 96%;
+    --popover: 230 30% 12%;
+    --popover-foreground: 228 24% 96%;
+    --primary: 229 100% 74%;         /* #7B8FFF */
+    --primary-foreground: 228 27% 8%;
+    --secondary: 229 60% 18%;        /* #1E2344 primarySoft dark */
+    --secondary-foreground: 228 24% 96%;
+    --muted: 229 30% 16%;            /* #232638 line */
+    --muted-foreground: 228 16% 68%; /* #B4B8C8 ink2 */
+    --accent: 72 83% 69%;            /* #D8F26A lime stays bright */
+    --accent-foreground: 84 41% 9%;  /* #1A1F0A limeInk dark */
+    --destructive: 12 100% 73%;      /* #FF8E78 coral dark */
+    --destructive-foreground: 228 27% 8%;
+    --border: 229 30% 16%;           /* #232638 */
+    --input: 229 30% 16%;
+    --ring: 229 100% 74%;
+    --chart-1: 229 100% 74%;
+    --chart-2: 72 83% 69%;
+    --chart-3: 12 100% 73%;
+    --chart-4: 256 100% 80%;
+    --chart-5: 156 65% 67%;
+    --sidebar-background: 230 30% 10%;
+    --sidebar-foreground: 228 24% 96%;
+    --sidebar-primary: 229 100% 74%;
+    --sidebar-primary-foreground: 228 27% 8%;
+    --sidebar-accent: 229 30% 14%;
+    --sidebar-accent-foreground: 228 24% 96%;
+    --sidebar-border: 229 30% 16%;
+    --sidebar-ring: 229 100% 74%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+  }
+}

@@ -1,0 +1,30 @@
+import React from 'react';
+import { format, parseISO, isToday, isTomorrow } from 'date-fns';
+import SessionCard from '../dashboard/SessionCard';
+
+function getDayLabel(dateStr) {
+  const date = parseISO(dateStr);
+  if (isToday(date)) return 'Today';
+  if (isTomorrow(date)) return 'Tomorrow';
+  return format(date, 'EEEE, MMM d');
+}
+
+export default function PlanDayGroup({ date, sessions, onComplete, onMiss }) {
+  return (
+    <div className="mb-6">
+      <h3 className="font-heading font-semibold text-sm text-muted-foreground mb-2 sticky top-0 bg-background py-1">
+        {getDayLabel(date)}
+      </h3>
+      <div className="space-y-2">
+        {sessions.map((session) => (
+          <SessionCard
+            key={session.id}
+            session={session}
+            onComplete={onComplete}
+            onMiss={onMiss}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}

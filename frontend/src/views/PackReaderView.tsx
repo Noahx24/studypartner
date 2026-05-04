@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { downloadAndStorePack } from '../hooks/usePack';
-import { Card, Chip } from '../ui/primitives';
-import { Icon } from '../ui/Icon';
-import { P, MONO, moduleColor } from '../ui/tokens';
+import { Card, Chip } from '../components/ui/primitives';
+import { Icon } from '../components/ui/Icon';
+import { P, MONO, moduleColor } from '../components/ui/tokens';
 import type { PackPayload, QuizPayload, SummaryPayload } from '../types';
 
 type Props = {

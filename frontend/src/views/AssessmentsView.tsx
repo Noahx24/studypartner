@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Card, Chip, IconBtn, Screen, ScreenHeader, SectionLabel } from '../ui/primitives';
-import { Icon } from '../ui/Icon';
-import { P, MONO, moduleColor } from '../ui/tokens';
+import { Card, Chip, IconBtn, Screen, ScreenHeader, SectionLabel } from '../components/ui/primitives';
+import { Icon } from '../components/ui/Icon';
+import { P, MONO, moduleColor } from '../components/ui/tokens';
 import type { AssessmentForm, ModuleForm } from '../types';
 
 type Props = {

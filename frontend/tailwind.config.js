@@ -1,46 +1,59 @@
 /** @type {import('tailwindcss').Config} */
-export default {
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+module.exports = {
+  darkMode: ["class"],
+  content: ["./index.html", "./src/**/*.{ts,tsx,js,jsx}"],
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Geist", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
-        mono: ["'Geist Mono'", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
-      },
-      colors: {
-        // Surface / base
-        app:      '#F5F5F1',
-        surface:  '#FFFFFF',
-        ink:      '#0B0E14',
-        ink2:     '#4A4E5A',
-        ink3:     '#8A8E99',
-        line:     '#E8E6DE',
-        // Accents
-        primary:    { DEFAULT: '#2F4BFF', soft: '#E6EAFF', on: '#FFFFFF' },
-        lime:       { DEFAULT: '#D8F26A', ink: '#24300A' },
-        coral:      { DEFAULT: '#FF8068', soft: '#FFE4DC', deep: '#C24A30' },
-        violet:     { DEFAULT: '#A58BFF', soft: '#ECE4FF', deep: '#5C3FD6' },
-        mint:       { DEFAULT: '#9DE8C8', soft: '#DFF6EB', deep: '#1F6F4C' },
-        amber:      { DEFAULT: '#FFC657', soft: '#FFF4D6', deep: '#8A5B10' },
-        // Kept from previous theme so old components don't break
-        brand: {
-          50: '#edf3ff', 100: '#dce8ff', 300: '#a9c4ff', 400: '#89adff',
-          500: '#6a96ff', 600: '#4f7fea', 700: '#3d67c7',
-        },
+        heading: ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        body: ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['Geist Mono', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
-        card: '22px',
-        inner: '14px',
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
       },
-      boxShadow: {
-        card: '0 1px 2px rgba(11,14,20,0.04)',
-        hero: '0 12px 30px rgba(11,14,20,0.12)',
-        pill: '0 4px 20px rgba(11,14,20,0.06)',
+      colors: {
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+        popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
+        primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+        secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
+        muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+        accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
+        destructive: { DEFAULT: 'hsl(var(--destructive))', foreground: 'hsl(var(--destructive-foreground))' },
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        chart: {
+          '1': 'hsl(var(--chart-1))',
+          '2': 'hsl(var(--chart-2))',
+          '3': 'hsl(var(--chart-3))',
+          '4': 'hsl(var(--chart-4))',
+          '5': 'hsl(var(--chart-5))',
+        },
+        sidebar: {
+          DEFAULT: 'hsl(var(--sidebar-background))',
+          foreground: 'hsl(var(--sidebar-foreground))',
+          primary: 'hsl(var(--sidebar-primary))',
+          'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
+          accent: 'hsl(var(--sidebar-accent))',
+          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
+          border: 'hsl(var(--sidebar-border))',
+          ring: 'hsl(var(--sidebar-ring))',
+        },
       },
-      letterSpacing: {
-        tightest: '-0.8px',
+      keyframes: {
+        'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
+        'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
       },
     },
   },
-  plugins: [],
+  plugins: [require("tailwindcss-animate")],
 };
