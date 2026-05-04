@@ -1,36 +1,39 @@
 import React from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
 import GeneratePlanButton from '../components/plan/GeneratePlanButton';
 import PlanDayGroup from '../components/plan/PlanDayGroup';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ClipboardList, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
-import _ from 'lodash';
+import { ClipboardList } from 'lucide-react';
+
+function groupBy(arr, key) {
+  return arr.reduce((acc, item) => {
+    const k = item[key];
+    (acc[k] = acc[k] || []).push(item);
+    return acc;
+  }, {});
+}
 
 export default function StudyPlan() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  const { data, isLoading } = useQuery({
+    queryKey: ['sessions', user?.id],
+    queryFn: () => api.getDailyPlan(user.id),
+    enabled: !!user,
+  });
 
-  const handleComplete = (session) => {
-    updateSession.mutate({ id: session.id, data: { status: 'completed' } });
-  };
-
-  const handleMiss = (session) => {
-    updateSession.mutate({ id: session.id, data: { status: 'missed' } });
-  };
-
-
-  const groupedSessions = _.groupBy(sessions, 'date');
+  const sessions = data?.sessions ?? [];
+  const groupedSessions = groupBy(sessions, 'session_date');
   const sortedDates = Object.keys(groupedSessions).sort();
-  const hasScheduled = sessions.some(s => s.status === 'scheduled');
 
-  if (loadingSessions) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-12 w-full rounded-xl" />
-        {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+        {Array(3).fill(0).map((_, i) => (
+          <div key={i} className="h-24 w-full rounded-xl bg-slate-100 animate-pulse" />
+        ))}
       </div>
     );
   }
@@ -40,21 +43,13 @@ export default function StudyPlan() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight">Study Plan</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Deadline-driven AI schedule
-          </p>
+          <p className="text-sm text-muted-foreground mt-0.5">Deadline-driven AI schedule</p>
         </div>
-        {hasScheduled && (
-          <Button variant="ghost" size="sm" onClick={handleClearPlan} className="text-muted-foreground">
-            <Trash2 className="w-4 h-4 mr-1" /> Clear
-          </Button>
-        )}
       </div>
 
       <div className="mb-6">
         <GeneratePlanButton
-          materials={materials}
-          availability={availability}
+          userId={user?.id}
           onGenerated={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
         />
       </div>
@@ -76,8 +71,8 @@ export default function StudyPlan() {
               key={date}
               date={date}
               sessions={groupedSessions[date]}
-              onComplete={handleComplete}
-              onMiss={handleMiss}
+              onComplete={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
+              onMiss={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
             />
           ))}
         </div>

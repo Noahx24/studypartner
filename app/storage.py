@@ -246,6 +246,7 @@ def init_db() -> None:
         )
         _ensure_column(conn, "assessments", "status", "TEXT NOT NULL DEFAULT 'open'")
         _ensure_column(conn, "assessments", "moodle_id", "TEXT")
+        _ensure_column(conn, "users", "password_hash", "TEXT")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
@@ -258,8 +259,8 @@ def create_user(user: User) -> None:
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO users (id, name, email, hours_per_day, days_per_week, pace, custom_minutes_per_500_words, max_daily_hours, pace_multiplier, feedback_samples)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, 0)
+            INSERT INTO users (id, name, email, hours_per_day, days_per_week, pace, custom_minutes_per_500_words, max_daily_hours, pace_multiplier, feedback_samples, password_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, 0, ?)
             """,
             (
                 user.id,
@@ -270,15 +271,12 @@ def create_user(user: User) -> None:
                 user.pace.value,
                 user.custom_minutes_per_500_words,
                 user.max_daily_hours,
+                user.password_hash,
             ),
         )
 
 
-def get_user(user_id: str) -> User | None:
-    with get_connection() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not row:
-        return None
+def _row_to_user(row) -> User:
     return User(
         id=row["id"],
         name=row["name"],
@@ -288,7 +286,20 @@ def get_user(user_id: str) -> User | None:
         pace=Pace(row["pace"]),
         custom_minutes_per_500_words=row["custom_minutes_per_500_words"],
         max_daily_hours=row["max_daily_hours"],
+        password_hash=row["password_hash"] if "password_hash" in row.keys() else None,
     )
+
+
+def get_user(user_id: str) -> User | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _row_to_user(row) if row else None
+
+
+def get_user_by_email(email: str) -> User | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    return _row_to_user(row) if row else None
 
 
 def get_user_multiplier(user_id: str) -> tuple[float, int]:

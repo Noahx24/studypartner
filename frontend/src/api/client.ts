@@ -13,6 +13,12 @@ import type {
 import { isoDate, startOfWeek } from '../utils/date';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const TOKEN_KEY = 'studypartner_token';
+
+function getAuthHeader(): Record<string, string> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // Timeouts stop the UI hanging indefinitely on a flaky connection and make
 // offline states recoverable. Pack downloads are longer because they stream.
@@ -57,6 +63,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
       {
         headers: {
           ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+          ...getAuthHeader(),
           ...init?.headers,
         },
         ...init,
@@ -91,18 +98,19 @@ const requestBytes = async (
 };
 
 export const api = {
-  createUser: (payload: UserSettings) =>
-    request<{ status: string; user_id: string }>('/users', {
+  login: (email: string, password: string) =>
+    request<{ token: string; user_id: string }>('/users/login', {
       method: 'POST',
-      body: JSON.stringify({
-        id: payload.userId,
-        name: payload.name,
-        email: payload.email,
-        hours_per_day: payload.hours_per_day,
-        days_per_week: payload.days_per_week,
-        pace: payload.pace,
-      }),
+      body: JSON.stringify({ email, password }),
     }),
+
+  register: (payload: { name: string; email: string; password: string; hours_per_day?: number; days_per_week?: number; pace?: string }) =>
+    request<{ token: string; user_id: string }>('/users/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getMe: () => request<UserSettings & { id: string }>('/users/me'),
 
   getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
 

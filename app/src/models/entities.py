@@ -51,6 +51,7 @@ class User:
     pace: Pace = Pace.normal
     custom_minutes_per_500_words: int | None = None
     max_daily_hours: float = 4.0
+    password_hash: str | None = None
 
 
 @dataclass

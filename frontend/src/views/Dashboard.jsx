@@ -1,26 +1,38 @@
 import React, { useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, differenceInDays } from 'date-fns';
-import TodayHeader from '../components/dashboard/TodayHeader';
-import SessionCard from '../components/dashboard/SessionCard';
-import UpcomingPreview from '../components/dashboard/UpcomingPreview';
+import TodayHeader from '../components/TodayHeader';
+import SessionCard from '../components/SessionCard';
+import UpcomingPreview from '../components/UpcomingPreview';
 import { AnimatePresence } from 'framer-motion';
 import { BookOpen, AlertTriangle, Calendar } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const today = format(new Date(), 'yyyy-MM-dd');
 
-  const todaySessions = allSessions.filter(s => s.date === today);
-  const completedToday = todaySessions.filter(s => s.status === 'completed').length;
+  const { data } = useQuery({
+    queryKey: ['daily-plan', user?.id, today],
+    queryFn: () => api.getDailyPlan(user.id, today),
+    enabled: !!user,
+  });
+
+  const allSessions = data?.sessions ?? [];
+  const todaySessions = allSessions;
+  const scheduledToday = todaySessions.filter(s => s.status === 'planned');
+  const doneToday = todaySessions.filter(s => s.status === 'completed');
+  const completedToday = doneToday.length;
 
   const streak = useMemo(() => {
     let count = 0;
     const sortedDates = [...new Set(
-      allSessions.filter(s => s.status === 'completed').map(s => s.date)
+      allSessions.filter(s => s.status === 'completed').map(s => s.session_date ?? s.date)
     )].sort().reverse();
     for (let i = 0; i < sortedDates.length; i++) {
       const expected = format(new Date(Date.now() - (i * 86400000)), 'yyyy-MM-dd');
@@ -30,50 +42,19 @@ export default function Dashboard() {
     return count;
   }, [allSessions]);
 
-  // Urgent deadlines in next 5 days
-  const urgentDeadlines = modules
-    .filter(m => {
-      const d = m.assignment_date || m.exam_date;
-      if (!d) return false;
-      const days = differenceInDays(parseISO(d), new Date());
-      return days >= 0 && days <= 5;
-    })
-    .sort((a, b) => {
-      const aDate = a.assignment_date || a.exam_date;
-      const bDate = b.assignment_date || b.exam_date;
-      return aDate.localeCompare(bDate);
-    });
+  const handleComplete = (session) => {
+    api.completeSession(session.id).then(() =>
+      queryClient.invalidateQueries({ queryKey: ['daily-plan'] })
+    );
+  };
 
+  const handleMiss = () => {
+    queryClient.invalidateQueries({ queryKey: ['daily-plan'] });
+  };
 
   return (
     <div>
       <TodayHeader sessionsToday={todaySessions.length} completedToday={completedToday} streak={streak} />
-
-      {/* Urgent Deadlines Banner */}
-      {urgentDeadlines.length > 0 && (
-        <div className="mb-4 bg-destructive/5 border border-destructive/20 rounded-2xl p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-destructive" />
-            <span className="text-xs font-bold text-destructive">Deadline Alert</span>
-          </div>
-          {urgentDeadlines.map(m => {
-            const d = m.assignment_date || m.exam_date;
-            const days = differenceInDays(parseISO(d), new Date());
-            const isAssign = !!m.assignment_date;
-            return (
-              <div key={m.id} className="flex items-center justify-between text-xs">
-                <span className="font-medium truncate">{m.title}</span>
-                <span className={cn("ml-2 flex-shrink-0 font-semibold flex items-center gap-1",
-                  days <= 1 ? "text-destructive" : "text-muted-foreground")}>
-                  <Calendar className="w-3 h-3" />
-                  {days === 0 ? 'Today!' : days === 1 ? 'Tomorrow' : `${days}d`}
-                  {' · '}{isAssign ? 'Assignment' : 'Exam'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {todaySessions.length === 0 ? (
         <div className="text-center py-16">
