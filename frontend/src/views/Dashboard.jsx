@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import TodayHeader from '../components/dashboard/TodayHeader';
@@ -14,16 +13,6 @@ import { cn } from '@/lib/utils';
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const today = format(new Date(), 'yyyy-MM-dd');
-
-  const { data: allSessions = [] } = useQuery({
-    queryKey: ['sessions'],
-    queryFn: () => base44.entities.StudySession.list('-date', 200),
-  });
-
-  const { data: modules = [] } = useQuery({
-    queryKey: ['materials'],
-    queryFn: () => base44.entities.StudyMaterial.list('-created_date', 100),
-  });
 
   const todaySessions = allSessions.filter(s => s.date === today);
   const completedToday = todaySessions.filter(s => s.status === 'completed').length;
@@ -55,16 +44,6 @@ export default function Dashboard() {
       return aDate.localeCompare(bDate);
     });
 
-  const updateSession = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.StudySession.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sessions'] }),
-  });
-
-  const handleComplete = (session) => updateSession.mutate({ id: session.id, data: { status: 'completed' } });
-  const handleMiss = (session) => updateSession.mutate({ id: session.id, data: { status: 'missed' } });
-
-  const scheduledToday = todaySessions.filter(s => s.status === 'scheduled');
-  const doneToday = todaySessions.filter(s => s.status !== 'scheduled');
 
   return (
     <div>

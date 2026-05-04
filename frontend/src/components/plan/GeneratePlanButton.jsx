@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Loader2 } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
@@ -47,9 +46,6 @@ export default function GeneratePlanButton({ materials, availability, onGenerate
       hours_available: a.hours_available,
     }));
 
-    const result = await base44.integrations.Core.InvokeLLM({
-      prompt: `You are an AI study planner for a working student with limited time. Generate a realistic 14-day study plan starting ${format(today, 'yyyy-MM-dd')} (${format(today, 'EEEE')}).
-
 STUDENT MODULES:
 ${JSON.stringify(modulesInfo, null, 2)}
 
@@ -93,10 +89,6 @@ Return the full session list. Each session: material_id, title, description, dat
       },
     });
 
-    if (result.sessions && result.sessions.length > 0) {
-      await base44.entities.StudySession.bulkCreate(
-        result.sessions.map(s => ({ ...s, status: 'scheduled' }))
-      );
       toast.success(`Generated ${result.sessions.length} sessions across 14 days!`);
       onGenerated();
     } else {

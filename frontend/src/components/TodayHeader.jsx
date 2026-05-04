@@ -1,7 +1,6 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { Flame, Target } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
 
 const MOTIVATIONAL = [
@@ -33,7 +32,6 @@ export default function TodayHeader({ sessionsToday, completedToday, streak }) {
 
   const { data: user } = useQuery({
     queryKey: ['me'],
-    queryFn: () => base44.auth.me(),
   });
 
   const firstName = user?.full_name?.split(' ')[0] || 'there';

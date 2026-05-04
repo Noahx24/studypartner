@@ -1,5 +1,4 @@
 import React from 'react';
-import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import GeneratePlanButton from '../components/plan/GeneratePlanButton';
 import PlanDayGroup from '../components/plan/PlanDayGroup';
@@ -12,25 +11,6 @@ import _ from 'lodash';
 export default function StudyPlan() {
   const queryClient = useQueryClient();
 
-  const { data: sessions = [], isLoading: loadingSessions } = useQuery({
-    queryKey: ['sessions'],
-    queryFn: () => base44.entities.StudySession.list('date', 200),
-  });
-
-  const { data: materials = [] } = useQuery({
-    queryKey: ['materials'],
-    queryFn: () => base44.entities.StudyMaterial.list('-created_date', 100),
-  });
-
-  const { data: availability = [] } = useQuery({
-    queryKey: ['availability'],
-    queryFn: () => base44.entities.Availability.list('day_of_week', 20),
-  });
-
-  const updateSession = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.StudySession.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sessions'] }),
-  });
 
   const handleComplete = (session) => {
     updateSession.mutate({ id: session.id, data: { status: 'completed' } });
@@ -40,14 +20,6 @@ export default function StudyPlan() {
     updateSession.mutate({ id: session.id, data: { status: 'missed' } });
   };
 
-  const handleClearPlan = async () => {
-    const scheduled = sessions.filter(s => s.status === 'scheduled');
-    for (const s of scheduled) {
-      await base44.entities.StudySession.delete(s.id);
-    }
-    toast.success('Cleared scheduled sessions');
-    queryClient.invalidateQueries({ queryKey: ['sessions'] });
-  };
 
   const groupedSessions = _.groupBy(sessions, 'date');
   const sortedDates = Object.keys(groupedSessions).sort();

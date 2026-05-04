@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save, Loader2, Moon, Sun, Coffee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -86,10 +85,6 @@ export default function Profile() {
   const [restDays, setRestDays] = useState({ ...DEFAULT_REST });
   const [saving, setSaving] = useState(false);
 
-  const { data: availability = [], isLoading } = useQuery({
-    queryKey: ['availability'],
-    queryFn: () => base44.entities.Availability.list('day_of_week', 20),
-  });
 
   useEffect(() => {
     if (availability.length > 0) {
@@ -108,15 +103,11 @@ export default function Profile() {
 
   const handleSave = async () => {
     setSaving(true);
-    for (const existing of availability) {
-      await base44.entities.Availability.delete(existing.id);
-    }
     const records = DAYS.map(d => ({
       day_of_week: d.key,
       hours_available: restDays[d.key] ? 0 : hours[d.key],
       is_rest_day: restDays[d.key],
     }));
-    await base44.entities.Availability.bulkCreate(records);
     toast.success('Schedule saved!');
     setSaving(false);
     queryClient.invalidateQueries({ queryKey: ['availability'] });

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, BookOpen, Search, AlertTriangle, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,11 +14,6 @@ export default function Modules() {
   const [search, setSearch] = useState('');
   const queryClient = useQueryClient();
 
-  const { data: modules = [], isLoading } = useQuery({
-    queryKey: ['materials'],
-    queryFn: () => base44.entities.StudyMaterial.list('-created_date', 100),
-  });
-
   const filtered = modules.filter(m =>
     m.title?.toLowerCase().includes(search.toLowerCase()) ||
     m.subject?.toLowerCase().includes(search.toLowerCase())
@@ -32,11 +26,6 @@ export default function Modules() {
     return aDate.localeCompare(bDate);
   });
 
-  const handleDelete = async (module) => {
-    await base44.entities.StudyMaterial.delete(module.id);
-    toast.success('Module deleted');
-    queryClient.invalidateQueries({ queryKey: ['materials'] });
-  };
 
   // Upcoming deadlines
   const upcomingDeadlines = modules

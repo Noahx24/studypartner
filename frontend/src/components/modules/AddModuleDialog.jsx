@@ -209,12 +209,8 @@ export default function AddModuleDialog({ open, onOpenChange, onCreated }) {
     setLoading(true);
     let fileUrl = '';
     if (file && !analysis) {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
       fileUrl = file_url;
     }
-
-    const result = await base44.integrations.Core.InvokeLLM({
-      prompt: `You are analyzing a study module for a working student. Extract detailed structure and estimate workload.
 
 MODULE INFO:
 Title: ${form.title}
@@ -287,7 +283,7 @@ Apply any student feedback corrections strictly.`,
       status: 'not_started',
       progress_percent: 0,
     };
-    await base44.entities.StudyMaterial.create(materialData);
+
     toast.success('Module saved!');
     onCreated();
     handleClose(false);
