@@ -10,7 +10,10 @@ from __future__ import annotations
 from app.src.utils.time import utcnow_iso
 import gzip
 import json
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from app.src.models import (
     PackStatus,
@@ -133,6 +136,7 @@ def build_pack(pack_id: str, *, ai_service: AIService | None = None) -> None:
         update_pack(pack_id, status=PackStatus.generated, payload=payload_bytes)
 
     except Exception as exc:
+        logger.error("Pack build failed for %s: %s", pack_id, exc, exc_info=True)
         update_pack(pack_id, status=PackStatus.failed, error=str(exc))
 
 

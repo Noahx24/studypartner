@@ -11,10 +11,13 @@ from __future__ import annotations
 import base64
 from datetime import date, datetime
 import json
+import logging
 import re
 from typing import Any
 import urllib.parse
 import urllib.request
+
+logger = logging.getLogger(__name__)
 
 from app.src.utils.time import utcnow_aware
 
@@ -156,7 +159,8 @@ def sync(user_id: str) -> dict:
             contents = _ws_call(
                 account.base_url, account.token, "core_course_get_contents", {"courseid": c["id"]}
             )
-        except MoodleError:
+        except MoodleError as exc:
+            logger.warning("Failed to fetch contents for course %s: %s", c["id"], exc)
             contents = []
 
         resources: list[MoodleResource] = []
@@ -204,8 +208,8 @@ def sync(user_id: str) -> dict:
                     )
                 )
                 assessments_added += 1
-            except Exception:
-                # Duplicate inserts / already-present assessments are ignored
+            except Exception as exc:
+                logger.warning("Skipped assessment moodle-a-%s: %s", a.get("id"), exc)
                 continue
 
     now = utcnow_aware()
@@ -257,7 +261,8 @@ def import_ics(user_id: str, ics_text: str) -> dict:
                 )
             )
             added += 1
-        except Exception:
+        except Exception as exc:
+            logger.warning("Skipped ICS event %s: %s", uid, exc)
             continue
     return {"events_imported": added}
 

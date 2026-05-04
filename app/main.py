@@ -1,8 +1,14 @@
 from contextlib import asynccontextmanager
+import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 from app.src.routes.ai import router as ai_router
 from app.src.routes.modules import router as modules_router
