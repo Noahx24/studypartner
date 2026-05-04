@@ -12,9 +12,10 @@ Conflict policy:
 """
 from __future__ import annotations
 
-from app.src.utils.time import utcnow_aware, utcnow_iso
+import logging
 from typing import Any
 
+from app.src.utils.time import utcnow_aware, utcnow_iso
 from app.storage import (
     mark_session_complete,
     record_sync_op,
@@ -24,6 +25,7 @@ from app.storage import (
 )
 from app.src.models import AIFeatureSet, UserSelection
 
+logger = logging.getLogger(__name__)
 
 MOODLE_ENTITIES = {"assessment", "module"}
 
@@ -54,8 +56,14 @@ def apply(user_id: str, ops: list[dict[str, Any]], last_pulled_at: str | None) -
 
         try:
             _dispatch(entity, entity_id, action, payload, user_id)
+        except ValueError as exc:
+            # ValueError from _dispatch is a client-side logic error — safe to surface.
+            conflicts.append({"op_id": op_id, "reason": str(exc)})
+            continue
         except Exception as exc:
-            conflicts.append({"op_id": op_id, "reason": f"apply_failed:{exc}"})
+            logger.error("Sync op %s failed: %s", op_id, exc, exc_info=True)
+            # Don't leak internal error details to the client.
+            conflicts.append({"op_id": op_id, "reason": "internal_error"})
             continue
 
         record_sync_op(user_id, op_id, entity or "", entity_id or "", action or "", payload)

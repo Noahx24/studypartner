@@ -1,7 +1,7 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { appParams } from '@/lib/app-params';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -10,120 +10,112 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [appPublicSettings, setAppPublicSettings] = useState(null); // Contains only { id, public_settings }
+  const [appPublicSettings, setAppPublicSettings] = useState(null);
 
-  useEffect(() => {
-    checkAppState();
+  const logout = useCallback(() => {
+    setUser(null);
+    setIsAuthenticated(false);
+    setAuthChecked(true);
   }, []);
 
-  const checkAppState = async () => {
-    try {
-      setIsLoadingPublicSettings(true);
-      setAuthError(null);
-      
-      // First, check app public settings (with token if available)
-      // This will tell us if auth is required, user not registered, etc.
-      const appClient = createAxiosClient({
-        baseURL: `/api/apps/public`,
-        headers: {
-          'X-App-Id': appParams.appId
-        },
-        token: appParams.token, // Include token if available
-        interceptResponses: true
-      });
-      
-      try {
-        const publicSettings = await appClient.get(`/prod/public-settings/by-id/${appParams.appId}`);
-        setAppPublicSettings(publicSettings);
-        
-        // If we got the app public settings successfully, check if user is authenticated
-        if (appParams.token) {
-          await checkUserAuth();
-        } else {
-          setIsLoadingAuth(false);
-          setIsAuthenticated(false);
-          setAuthChecked(true);
-        }
-        setIsLoadingPublicSettings(false);
-      } catch (appError) {
-        console.error('App state check failed:', appError);
-        
-        // Handle app-level errors
-        if (appError.status === 403 && appError.data?.extra_data?.reason) {
-          const reason = appError.data.extra_data.reason;
-          if (reason === 'auth_required') {
-            setAuthError({
-              type: 'auth_required',
-              message: 'Authentication required'
-            });
-          } else if (reason === 'user_not_registered') {
-            setAuthError({
-              type: 'user_not_registered',
-              message: 'User not registered for this app'
-            });
-          } else {
-            setAuthError({
-              type: reason,
-              message: appError.message
-            });
-          }
-        } else {
-          setAuthError({
-            type: 'unknown',
-            message: appError.message || 'Failed to load app'
-          });
-        }
-        setIsLoadingPublicSettings(false);
-        setIsLoadingAuth(false);
-      }
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      setAuthError({
-        type: 'unknown',
-        message: error.message || 'An unexpected error occurred'
-      });
-      setIsLoadingPublicSettings(false);
-      setIsLoadingAuth(false);
-    }
-  };
+  const navigateToLogin = useCallback(() => {
+    // Redirect to external login — adjust URL to match platform conventions.
+    window.location.href = '/login';
+  }, []);
 
-  const checkUserAuth = async () => {
+  const checkUserAuth = useCallback(async () => {
     try {
-      // Now check if the user is authenticated
       setIsLoadingAuth(true);
+      if (!appParams.token) {
+        setIsAuthenticated(false);
+        setUser(null);
+        setAuthChecked(true);
+        return;
+      }
+      // Resolve the authenticated user from the backend using the injected token.
+      const response = await fetch(`/api/users/me`, {
+        headers: { Authorization: `Bearer ${appParams.token}` },
+      });
+      if (!response.ok) {
+        throw Object.assign(new Error('Auth check failed'), { status: response.status });
+      }
+      const currentUser = await response.json();
       setUser(currentUser);
       setIsAuthenticated(true);
-      setIsLoadingAuth(false);
       setAuthChecked(true);
     } catch (error) {
       console.error('User auth check failed:', error);
-      setIsLoadingAuth(false);
       setIsAuthenticated(false);
+      setUser(null);
       setAuthChecked(true);
-      
-      // If user auth fails, it might be an expired token
       if (error.status === 401 || error.status === 403) {
-        setAuthError({
-          type: 'auth_required',
-          message: 'Authentication required'
-        });
+        setAuthError({ type: 'auth_required', message: 'Authentication required' });
       }
+    } finally {
+      setIsLoadingAuth(false);
     }
+  }, []);
+
+  const checkAppState = useCallback(async () => {
+    try {
+      setIsLoadingPublicSettings(true);
+      setAuthError(null);
+
+      const response = await fetch(
+        `/api/apps/public/prod/public-settings/by-id/${appParams.appId}`,
+        { headers: { 'X-App-Id': appParams.appId } },
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        const reason = data?.extra_data?.reason;
+        if (response.status === 403 && reason) {
+          setAuthError({ type: reason, message: data.message || 'Access denied' });
+        } else {
+          setAuthError({ type: 'unknown', message: data.message || 'Failed to load app' });
+        }
+        return;
+      }
+
+      const publicSettings = await response.json();
+      setAppPublicSettings(publicSettings);
+
+      if (appParams.token) {
+        await checkUserAuth();
+      } else {
+        setIsAuthenticated(false);
+        setAuthChecked(true);
+        setIsLoadingAuth(false);
+      }
+    } catch (error) {
+      console.error('Unexpected error during app state check:', error);
+      setAuthError({ type: 'unknown', message: error.message || 'An unexpected error occurred' });
+      setIsLoadingAuth(false);
+    } finally {
+      setIsLoadingPublicSettings(false);
+    }
+  }, [checkUserAuth]);
+
+  useEffect(() => {
+    checkAppState();
+  }, [checkAppState]);
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
-      isLoadingAuth,
-      isLoadingPublicSettings,
-      authError,
-      appPublicSettings,
-      authChecked,
-      logout,
-      navigateToLogin,
-      checkUserAuth,
-      checkAppState
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated,
+        isLoadingAuth,
+        isLoadingPublicSettings,
+        authError,
+        appPublicSettings,
+        authChecked,
+        logout,
+        navigateToLogin,
+        checkUserAuth,
+        checkAppState,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

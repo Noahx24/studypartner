@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+import uuid
 
 from app.src.utils.time import utcnow_aware
-from itertools import count
 import math
 import re
 
@@ -109,7 +109,6 @@ def generate_sessions(user: User, modules: list[Module], units: list[StudyUnit],
     daily_cap = min(int(user.hours_per_day * 60), int(user.max_daily_hours * 60))
     allocated = defaultdict(int)
     sessions: list[Session] = []
-    sid = count(1)
 
     for d in days:
         remaining_today = daily_cap
@@ -144,7 +143,7 @@ def generate_sessions(user: User, modules: list[Module], units: list[StudyUnit],
 
             sessions.append(
                 Session(
-                    id=f"s{next(sid)}",
+                    id=str(uuid.uuid4()),
                     user_id=user.id,
                     module_id=mod_id,
                     unit_id=unit.id,

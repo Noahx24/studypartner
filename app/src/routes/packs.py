@@ -1,23 +1,39 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
+import logging
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from pydantic import BaseModel, Field
+
+from app.src.models import User
 from app.src.models.services.study_pack_service import build_pack, new_pack, regenerate_artifact
+from app.src.utils.auth import get_current_user
 from app.storage import get_pack, list_packs_for_module
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pack", tags=["packs"])
 
 
-@router.post("/generate")
-def generate_pack(payload: dict, tasks: BackgroundTasks) -> dict:
-    try:
-        selection_id = payload["selection_id"]
-        user_id = payload["user_id"]
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail=f"Missing field: {exc.args[0]}") from exc
+class GeneratePackRequest(BaseModel):
+    selection_id: str = Field(..., min_length=1)
+    user_id: str = Field(..., min_length=1)
 
+
+class RegenerateRequest(BaseModel):
+    scope: str
+    ref_id: str = Field(..., min_length=1)
+
+
+@router.post("/generate")
+def generate_pack(
+    body: GeneratePackRequest,
+    tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    if current_user.id != body.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     try:
-        pack = new_pack(user_id=user_id, selection_id=selection_id)
+        pack = new_pack(user_id=body.user_id, selection_id=body.selection_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -26,10 +42,15 @@ def generate_pack(payload: dict, tasks: BackgroundTasks) -> dict:
 
 
 @router.get("/{pack_id}")
-def pack_status(pack_id: str) -> dict:
+def pack_status(
+    pack_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
     pack = get_pack(pack_id)
     if not pack:
         raise HTTPException(status_code=404, detail="Pack not found")
+    if pack.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     return {
         "id": pack.id,
         "module_id": pack.module_id,
@@ -44,10 +65,15 @@ def pack_status(pack_id: str) -> dict:
 
 
 @router.get("/{pack_id}/download")
-def download_pack(pack_id: str) -> Response:
+def download_pack(
+    pack_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
     pack = get_pack(pack_id)
     if not pack or pack.payload is None:
         raise HTTPException(status_code=404, detail="Pack payload not available")
+    if pack.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     etag = f'"{pack.id}-v{pack.version}"'
     return Response(
         content=pack.payload,
@@ -61,7 +87,13 @@ def download_pack(pack_id: str) -> Response:
 
 
 @router.get("/module/{module_id}/{user_id}")
-def list_packs(module_id: str, user_id: str) -> dict:
+def list_packs(
+    module_id: str,
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     packs = list_packs_for_module(module_id, user_id)
     return {
         "packs": [
@@ -78,16 +110,18 @@ def list_packs(module_id: str, user_id: str) -> dict:
 
 
 @router.post("/{pack_id}/regenerate")
-def regenerate_endpoint(pack_id: str, payload: dict, tasks: BackgroundTasks) -> dict:
-    try:
-        scope = payload["scope"]
-        ref_id = payload["ref_id"]
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail=f"Missing field: {exc.args[0]}") from exc
-
-    if scope not in {"summary", "subtopic_quiz", "topic_quiz"}:
+def regenerate_endpoint(
+    pack_id: str,
+    body: RegenerateRequest,
+    tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    if body.scope not in {"summary", "subtopic_quiz", "topic_quiz"}:
         raise HTTPException(status_code=400, detail="Invalid scope")
-
-    # Run synchronously as a BackgroundTask so the client returns immediately
-    tasks.add_task(regenerate_artifact, pack_id, scope, ref_id)
-    return {"pack_id": pack_id, "status": "generating", "regenerate": {"scope": scope, "ref_id": ref_id}}
+    pack = get_pack(pack_id)
+    if not pack:
+        raise HTTPException(status_code=404, detail="Pack not found")
+    if pack.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    tasks.add_task(regenerate_artifact, pack_id, body.scope, body.ref_id)
+    return {"pack_id": pack_id, "status": "generating", "regenerate": {"scope": body.scope, "ref_id": body.ref_id}}
