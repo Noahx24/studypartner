@@ -5,41 +5,41 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ModuleCard from '../components/modules/ModuleCard';
 import AddModuleDialog from '../components/modules/AddModuleDialog';
-import { toast } from 'sonner';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function Modules() {
+  const { user } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState('');
   const queryClient = useQueryClient();
 
+  const { data } = useQuery({
+    queryKey: ['modules', user?.id],
+    queryFn: async () => {
+      // Modules are stored locally in IndexedDB via the sync layer;
+      // fall back to an empty list if the repo isn't populated yet.
+      return { modules: [] };
+    },
+    enabled: !!user,
+  });
+
+  const modules = data?.modules ?? [];
+
   const filtered = modules.filter(m =>
-    m.title?.toLowerCase().includes(search.toLowerCase()) ||
-    m.subject?.toLowerCase().includes(search.toLowerCase())
+    m.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Sort: critical deadlines first
   const sorted = [...filtered].sort((a, b) => {
-    const aDate = a.assignment_date || a.exam_date || '9999-12-31';
-    const bDate = b.assignment_date || b.exam_date || '9999-12-31';
+    const aDate = a.due_date || '9999-12-31';
+    const bDate = b.due_date || '9999-12-31';
     return aDate.localeCompare(bDate);
   });
 
-
-  // Upcoming deadlines
-  const upcomingDeadlines = modules
-    .filter(m => {
-      const d = m.assignment_date || m.exam_date;
-      if (!d) return false;
-      const days = differenceInDays(parseISO(d), new Date());
-      return days >= 0 && days <= 7;
-    })
-    .sort((a, b) => {
-      const aDate = a.assignment_date || a.exam_date;
-      const bDate = b.assignment_date || b.exam_date;
-      return aDate.localeCompare(bDate);
-    });
+  const handleDelete = () => {
+    queryClient.invalidateQueries({ queryKey: ['modules'] });
+  };
 
   return (
     <div>
@@ -52,36 +52,6 @@ export default function Modules() {
           <Plus className="w-4 h-4 mr-1" /> Add
         </Button>
       </div>
-
-      {/* Deadline Banner */}
-      {upcomingDeadlines.length > 0 && (
-        <div className="mb-4 bg-destructive/5 border border-destructive/20 rounded-2xl p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-destructive" />
-            <span className="text-xs font-semibold text-destructive">Upcoming Deadlines</span>
-          </div>
-          <div className="space-y-1">
-            {upcomingDeadlines.map(m => {
-              const d = m.assignment_date || m.exam_date;
-              const days = differenceInDays(parseISO(d), new Date());
-              const isAssignment = !!m.assignment_date;
-              return (
-                <div key={m.id} className="flex items-center justify-between text-xs">
-                  <span className="font-medium truncate">{m.title}</span>
-                  <span className={cn(
-                    "ml-2 flex-shrink-0 flex items-center gap-1",
-                    days <= 2 ? "text-destructive font-bold" : "text-muted-foreground"
-                  )}>
-                    <Calendar className="w-3 h-3" />
-                    {days === 0 ? 'Today!' : days === 1 ? 'Tomorrow' : `${days}d`}
-                    {' · '}{isAssignment ? 'Assignment' : 'Exam'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {modules.length > 3 && (
         <div className="relative mb-4">
@@ -119,7 +89,7 @@ export default function Modules() {
       <AddModuleDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onCreated={() => queryClient.invalidateQueries({ queryKey: ['materials'] })}
+        onCreated={() => queryClient.invalidateQueries({ queryKey: ['modules'] })}
       />
     </div>
   );

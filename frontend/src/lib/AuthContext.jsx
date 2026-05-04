@@ -1,5 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { appParams } from '@/lib/app-params';
+
+const TOKEN_KEY = 'studypartner_token';
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 const AuthContext = createContext(null);
 
@@ -7,98 +9,81 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [appPublicSettings, setAppPublicSettings] = useState(null);
 
   const logout = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY);
     setUser(null);
     setIsAuthenticated(false);
-    setAuthChecked(true);
-  }, []);
-
-  const navigateToLogin = useCallback(() => {
-    // Redirect to external login — adjust URL to match platform conventions.
-    window.location.href = '/login';
+    setAuthError(null);
   }, []);
 
   const checkUserAuth = useCallback(async () => {
-    try {
-      setIsLoadingAuth(true);
-      if (!appParams.token) {
-        setIsAuthenticated(false);
-        setUser(null);
-        setAuthChecked(true);
-        return;
-      }
-      // Resolve the authenticated user from the backend using the injected token.
-      const response = await fetch(`/api/users/me`, {
-        headers: { Authorization: `Bearer ${appParams.token}` },
-      });
-      if (!response.ok) {
-        throw Object.assign(new Error('Auth check failed'), { status: response.status });
-      }
-      const currentUser = await response.json();
-      setUser(currentUser);
-      setIsAuthenticated(true);
-      setAuthChecked(true);
-    } catch (error) {
-      console.error('User auth check failed:', error);
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
       setIsAuthenticated(false);
       setUser(null);
-      setAuthChecked(true);
-      if (error.status === 401 || error.status === 403) {
-        setAuthError({ type: 'auth_required', message: 'Authentication required' });
+      setIsLoadingAuth(false);
+      return;
+    }
+    try {
+      setIsLoadingAuth(true);
+      const response = await fetch(`${API_BASE}/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        // Token is expired or invalid — clear it
+        localStorage.removeItem(TOKEN_KEY);
+        setIsAuthenticated(false);
+        setUser(null);
+      } else {
+        const currentUser = await response.json();
+        setUser(currentUser);
+        setIsAuthenticated(true);
       }
+    } catch {
+      // Network failure — stay unauthenticated, keep the token to retry later
+      setIsAuthenticated(false);
     } finally {
       setIsLoadingAuth(false);
     }
   }, []);
 
-  const checkAppState = useCallback(async () => {
-    try {
-      setIsLoadingPublicSettings(true);
-      setAuthError(null);
-
-      const response = await fetch(
-        `/api/apps/public/prod/public-settings/by-id/${appParams.appId}`,
-        { headers: { 'X-App-Id': appParams.appId } },
-      );
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        const reason = data?.extra_data?.reason;
-        if (response.status === 403 && reason) {
-          setAuthError({ type: reason, message: data.message || 'Access denied' });
-        } else {
-          setAuthError({ type: 'unknown', message: data.message || 'Failed to load app' });
-        }
-        return;
-      }
-
-      const publicSettings = await response.json();
-      setAppPublicSettings(publicSettings);
-
-      if (appParams.token) {
-        await checkUserAuth();
-      } else {
-        setIsAuthenticated(false);
-        setAuthChecked(true);
-        setIsLoadingAuth(false);
-      }
-    } catch (error) {
-      console.error('Unexpected error during app state check:', error);
-      setAuthError({ type: 'unknown', message: error.message || 'An unexpected error occurred' });
-      setIsLoadingAuth(false);
-    } finally {
-      setIsLoadingPublicSettings(false);
+  // Called from the Login page on successful credential check
+  const login = useCallback(async (email, password) => {
+    const response = await fetch(`${API_BASE}/users/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || 'Invalid email or password');
     }
+    const { token } = await response.json();
+    localStorage.setItem(TOKEN_KEY, token);
+    await checkUserAuth();
+  }, [checkUserAuth]);
+
+  // Called from the Register page on successful account creation
+  const register = useCallback(async (payload) => {
+    const response = await fetch(`${API_BASE}/users/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || 'Registration failed');
+    }
+    const { token } = await response.json();
+    localStorage.setItem(TOKEN_KEY, token);
+    await checkUserAuth();
   }, [checkUserAuth]);
 
   useEffect(() => {
-    checkAppState();
-  }, [checkAppState]);
+    checkUserAuth();
+  }, [checkUserAuth]);
 
   return (
     <AuthContext.Provider
@@ -106,14 +91,11 @@ export const AuthProvider = ({ children }) => {
         user,
         isAuthenticated,
         isLoadingAuth,
-        isLoadingPublicSettings,
         authError,
-        appPublicSettings,
-        authChecked,
+        login,
         logout,
-        navigateToLogin,
+        register,
         checkUserAuth,
-        checkAppState,
       }}
     >
       {children}
@@ -128,3 +110,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export const getStoredToken = () => localStorage.getItem(TOKEN_KEY);

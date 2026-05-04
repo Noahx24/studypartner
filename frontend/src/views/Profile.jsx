@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save, Loader2, Moon, Sun, Coffee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -84,20 +84,6 @@ export default function Profile() {
   const [hours, setHours] = useState({ ...DEFAULT_HOURS });
   const [restDays, setRestDays] = useState({ ...DEFAULT_REST });
   const [saving, setSaving] = useState(false);
-
-
-  useEffect(() => {
-    if (availability.length > 0) {
-      const h = {}, r = {};
-      DAYS.forEach(d => {
-        const slot = availability.find(a => a.day_of_week === d.key);
-        h[d.key] = slot ? (slot.hours_available || 0) : DEFAULT_HOURS[d.key];
-        r[d.key] = slot ? (slot.is_rest_day || false) : DEFAULT_REST[d.key];
-      });
-      setHours(h);
-      setRestDays(r);
-    }
-  }, [availability]);
 
   const totalWeeklyHours = DAYS.reduce((sum, d) => sum + (restDays[d.key] ? 0 : hours[d.key]), 0);
 

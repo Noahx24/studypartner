@@ -4,31 +4,13 @@ import { cn } from "@/lib/utils";
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 
-const complexityColors: Record<string, string> = {
+const complexityColors = {
   light: 'bg-emerald-500/10 text-emerald-600 border-emerald-200',
   moderate: 'bg-amber-500/10 text-amber-600 border-amber-200',
   heavy: 'bg-red-500/10 text-red-600 border-red-200',
 };
 
-interface Session {
-  status?: string;
-  title: string;
-  complexity?: string;
-  description?: string;
-  start_time?: string;
-  duration_minutes?: number;
-  subject?: string;
-}
-
-export default function SessionCard({ 
-  session, 
-  onComplete, 
-  onMiss 
-}: { 
-  session: Session; 
-  onComplete: (session: Session) => void; 
-  onMiss: (session: Session) => void; 
-}) {
+export default function SessionCard({ session, onComplete, onMiss }) {
   const isCompleted = session.status === 'completed';
   const isMissed = session.status === 'missed';
 
@@ -45,7 +27,6 @@ export default function SessionCard({
       )}
     >
       <div className="flex items-start gap-3">
-        {/* Status Icon */}
         <button
           onClick={() => !isCompleted && onComplete(session)}
           className="mt-0.5 flex-shrink-0"
@@ -104,7 +85,6 @@ export default function SessionCard({
         </div>
       </div>
 
-      {/* Action Buttons for non-completed */}
       {!isCompleted && !isMissed && (
         <div className="flex gap-2 mt-3 ml-9">
           <Button
@@ -128,4 +108,4 @@ export default function SessionCard({
       )}
     </motion.div>
   );
-} 
+}

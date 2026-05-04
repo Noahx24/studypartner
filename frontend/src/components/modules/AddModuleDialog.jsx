@@ -5,9 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Upload, Loader2, Sparkles, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, Loader2, Sparkles, CheckCircle2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
+import { v4 as uuidv4 } from 'uuid';
 
 // Step 1: Basic info form
 function BasicInfoStep({ form, setForm, file, onFileChange, onNext, loading }) {
@@ -181,6 +184,7 @@ function ConfirmStep({ analysis, form, onConfirm, onRegenerate, onFeedback, feed
 }
 
 export default function AddModuleDialog({ open, onOpenChange, onCreated }) {
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     title: '', subject: '', type: 'notes', priority: 'medium',
@@ -205,85 +209,44 @@ export default function AddModuleDialog({ open, onOpenChange, onCreated }) {
     onOpenChange(v);
   };
 
-  const runAIAnalysis = async (extraFeedback = '') => {
-    setLoading(true);
-    let fileUrl = '';
-    if (file && !analysis) {
-      fileUrl = file_url;
-    }
-
-MODULE INFO:
-Title: ${form.title}
-Subject: ${form.subject}
-Type: ${form.type}
-Pages: ${form.estimated_pages || 'unknown'}
-Priority: ${form.priority}
-Exam Date: ${form.exam_date || 'not set'}
-Assignment Due: ${form.assignment_date || 'not set'}
-${extraFeedback ? `\nSTUDENT FEEDBACK / CORRECTIONS: ${extraFeedback}` : ''}
-${fileUrl ? `\nA file was uploaded. Extract units from it.` : ''}
-
-TASK:
-1. Identify distinct units/chapters (numbered Unit 1, Unit 2, Unit 3... up to as many as the material contains)
-2. For each unit: write a clear title, 1-sentence summary of content, and estimated study hours
-3. Estimate total hours (realistic for a working student, include revision time)
-4. Identify complexity level
-5. Write a concise summary of the full module
-
-Apply any student feedback corrections strictly.`,
-      response_json_schema: {
-        type: 'object',
-        properties: {
-          estimated_hours: { type: 'number' },
-          complexity: { type: 'string', enum: ['light', 'moderate', 'heavy'] },
-          topics_summary: { type: 'string' },
-          estimated_pages: { type: 'number' },
-          units: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                number: { type: 'number' },
-                title: { type: 'string' },
-                summary: { type: 'string' },
-                estimated_hours: { type: 'number' },
-                status: { type: 'string', enum: ['not_started', 'in_progress', 'completed'] },
-              },
-            },
-          },
-        },
-      },
-    });
-    setAnalysis(result);
-    setLoading(false);
-    return result;
-  };
-
   const handleNext = async () => {
     if (!form.title || !form.subject) { toast.error('Fill in title and subject'); return; }
-    await runAIAnalysis();
-    setStep(2);
+    if (!file && !form.subject) { toast.error('Upload a file or enter a subject'); return; }
+    setLoading(true);
+    try {
+      const moduleId = uuidv4();
+      const moduleType = ['textbook', 'pdf', 'slides'].includes(form.type) ? 'semester' : 'semester';
+      const result = await api.uploadContent({
+        user_id: user.id,
+        module_id: moduleId,
+        module_name: form.title,
+        module_type: moduleType,
+        pasted_text: !file ? `${form.title}: ${form.subject}` : undefined,
+        file: file || undefined,
+      });
+      setAnalysis({
+        module_id: moduleId,
+        learning_unit_count: result.learning_unit_count,
+        subtopic_count: result.subtopic_count,
+        topics_summary: `${result.learning_unit_count} learning units with ${result.subtopic_count} subtopics extracted.`,
+        estimated_hours: Math.ceil(result.subtopic_count * 0.5),
+        complexity: result.subtopic_count > 20 ? 'heavy' : result.subtopic_count > 10 ? 'moderate' : 'light',
+        units: [],
+      });
+      setStep(2);
+    } catch (err) {
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRegenerate = async () => {
-    await runAIAnalysis(feedback);
+    toast.info('Re-upload the file to re-analyze');
     setFeedback('');
-    toast.success('Re-analyzed with your feedback');
   };
 
   const handleSave = async () => {
-    setLoading(true);
-    const materialData = {
-      ...form,
-      estimated_hours: analysis.estimated_hours,
-      complexity: analysis.complexity,
-      topics_summary: analysis.topics_summary,
-      estimated_pages: form.estimated_pages ? Number(form.estimated_pages) : analysis.estimated_pages,
-      units: analysis.units || [],
-      status: 'not_started',
-      progress_percent: 0,
-    };
-
     toast.success('Module saved!');
     onCreated();
     handleClose(false);

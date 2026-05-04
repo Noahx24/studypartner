@@ -1,32 +1,28 @@
-import { Toaster } from './components/ui/toaster'
-import { QueryClientProvider } from '@tanstack/react-query'
-import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom'
-import PageNotFound from './lib/PageNotFound'
+import { Toaster } from 'sonner';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClientInstance } from '@/lib/query-client';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
-import UserNotRegisteredError from '@/components/UserNotRegisteredError'
-import AppLayout from './components/layout/AppLayout'
-import Dashboard from './views/Dashboard'
-import Modules from './views/Modules'
-import CalendarView from './views/CalendarView'
-import StudyPlan from './views/StudyPlan'
-import Profile from './views/Profile'
+import AppLayout from './components/layout/AppLayout';
+import Dashboard from './views/Dashboard';
+import Modules from './views/Modules';
+import CalendarView from './views/CalendarView';
+import StudyPlan from './views/StudyPlan';
+import Profile from './views/Profile';
+import Login from './views/Login';
+import PageNotFound from './lib/PageNotFound';
+
+const Spinner = () => (
+  <div className="fixed inset-0 flex items-center justify-center">
+    <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
+  </div>
+);
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isAuthenticated, isLoadingAuth } = useAuth();
 
-  if (isLoadingPublicSettings || isLoadingAuth) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  if (authError) {
-    if (authError.type === 'user_not_registered') return <UserNotRegisteredError />;
-    if (authError.type === 'auth_required') { navigateToLogin(); return null; }
-  }
+  if (isLoadingAuth) return <Spinner />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   return (
     <Routes>
@@ -47,7 +43,10 @@ function App() {
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
         <Router>
-          <AuthenticatedApp />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/*" element={<AuthenticatedApp />} />
+          </Routes>
         </Router>
         <Toaster />
       </QueryClientProvider>

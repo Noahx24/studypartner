@@ -1,6 +1,6 @@
 import React from 'react';
 import { format, parseISO, isToday, isTomorrow } from 'date-fns';
-import SessionCard from '../dashboard/SessionCard';
+import SessionCard from '../SessionCard';
 
 function getDayLabel(dateStr) {
   const date = parseISO(dateStr);
