@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from app.src.models import Pace, User
 from app.src.models.services.auth_service import create_token, verify_password
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 class CreateUserRequest(BaseModel):
     id: str = Field(..., min_length=1, max_length=128)
     name: str = Field(..., min_length=1, max_length=200)
-    email: EmailStr
+    email: str = Field(..., min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     hours_per_day: float = Field(..., gt=0, le=24)
     days_per_week: int = Field(..., ge=1, le=7)
     pace: str = "normal"
