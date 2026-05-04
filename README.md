@@ -114,15 +114,7 @@ Example:
 4. Generate weekly plan
 5. Complete a session
 6. Submit feedback:
-```json
-POST /plans/session/feedback
-{
-  "user_id":"u1",
-  "session_id":"s1",
-  "actual_time_minutes":120
-}
-```
-7. Regenerate/reschedule and future estimates reflect learned pace
+
 
 ## Rescheduling demo
 
