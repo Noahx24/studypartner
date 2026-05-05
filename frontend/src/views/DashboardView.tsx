@@ -25,6 +25,7 @@ type Props = {
   onOpenModules: () => void;
   onOpenAssessments: () => void;
   onOpenModule: (id: string) => void;
+  onOpenSettings: () => void;
 };
 
 export function DashboardView({
@@ -39,6 +40,7 @@ export function DashboardView({
   onOpenModules,
   onOpenAssessments,
   onOpenModule,
+  onOpenSettings,
 }: Props) {
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -85,7 +87,14 @@ export function DashboardView({
             ? `${(remainingMin / 60).toFixed(1)}h of study left today.`
             : "You're clear for today ✓"
         }
-        right={<SyncPill state={syncState} onClick={onSync} />}
+        right={
+          <div className="flex items-center gap-2">
+            <SyncPill state={syncState} onClick={onSync} />
+            <IconBtn size={36} aria-label="Settings" onClick={onOpenSettings}>
+              <Icon name="settings" size={18} color={P.ink} />
+            </IconBtn>
+          </div>
+        }
       />
 
       <div className="px-4">

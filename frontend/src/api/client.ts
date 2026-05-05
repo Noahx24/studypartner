@@ -106,6 +106,18 @@ export const api = {
 
   getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
 
+  updateUser: (userId: string, patch: Partial<Omit<UserSettings, 'userId'>>) =>
+    request<{ status: string; user: UserSettings & { id: string } }>(`/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: patch.name,
+        email: patch.email,
+        hours_per_day: patch.hours_per_day,
+        days_per_week: patch.days_per_week,
+        pace: patch.pace,
+      }),
+    }),
+
   createModule: (userId: string, module: ModuleForm) =>
     request<{ status: string; module_id: string }>('/modules', {
       method: 'POST',

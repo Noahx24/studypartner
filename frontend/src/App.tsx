@@ -17,6 +17,7 @@ import { SelectionView } from './views/SelectionView';
 import { StudyPacksView } from './views/StudyPacksView';
 import { PackReaderView } from './views/PackReaderView';
 import { LandingView } from './views/LandingView';
+import { SettingsView } from './views/SettingsView';
 import { FeedbackModal } from './components/FeedbackModal';
 import type {
   AssessmentForm,
@@ -41,7 +42,8 @@ type Route =
   | { name: 'upload'; moduleId?: string }
   | { name: 'selection'; moduleId: string }
   | { name: 'packs'; moduleId: string; selectionId?: string }
-  | { name: 'reader'; packId: string; payload: PackPayload };
+  | { name: 'reader'; packId: string; payload: PackPayload }
+  | { name: 'settings' };
 
 const DEFAULT_USER: UserSettings = {
   userId: 'student-001',
@@ -65,6 +67,7 @@ const TAB_FOR_ROUTE: Record<Route['name'], TabId> = {
   selection: 'modules',
   packs: 'modules',
   reader: 'modules',
+  settings: 'home',
 };
 
 export function App() {
@@ -84,6 +87,7 @@ export function App() {
   const outboxCount = useOutboxCount();
   const [error, setError] = useState<string | null>(null);
   const [activeSelectionId, setActiveSelectionId] = useState<string | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
 
   const loadPlans = useCallback(async (userId: string) => {
     const [week, today] = await Promise.all([api.generatePlan(userId), api.getDailyPlan(userId)]);
@@ -162,6 +166,27 @@ export function App() {
     }
   };
 
+  const handleSaveSettings = async (next: UserSettings) => {
+    setSettingsSaving(true);
+    try {
+      await api.updateUser(user.userId, {
+        name: next.name,
+        email: next.email,
+        hours_per_day: next.hours_per_day,
+        days_per_week: next.days_per_week,
+        pace: next.pace,
+      });
+      setUser(next);
+      // Availability changes affect the schedule — regenerate.
+      await loadPlans(user.userId);
+      setRoute({ name: 'home' });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save settings');
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
   const fetchModuleDetails = useCallback(async (moduleId: string) => {
     const [content, units] = await Promise.all([
       api.getModuleContent(moduleId),
@@ -229,7 +254,20 @@ export function App() {
             void fetchModuleDetails(id);
             setRoute({ name: 'module_detail', moduleId: id });
           }}
+          onOpenSettings={() => setRoute({ name: 'settings' })}
         />
+      )}
+
+      {route.name === 'settings' && (
+        <section className="px-4 pb-24 pt-12">
+          <button
+            onClick={() => setRoute({ name: 'home' })}
+            className="mb-4 text-sm font-semibold opacity-60"
+          >
+            ← Back
+          </button>
+          <SettingsView settings={user} loading={settingsSaving} onSave={handleSaveSettings} />
+        </section>
       )}
 
       {route.name === 'today' && (

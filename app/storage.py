@@ -291,6 +291,27 @@ def get_user(user_id: str) -> User | None:
     )
 
 
+def update_user(user_id: str, fields: dict) -> User | None:
+    """Patch mutable user fields. Unknown keys are ignored."""
+    allowed = {
+        "name",
+        "email",
+        "hours_per_day",
+        "days_per_week",
+        "pace",
+        "custom_minutes_per_500_words",
+        "max_daily_hours",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return get_user(user_id)
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [user_id]
+    with get_connection() as conn:
+        conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
+    return get_user(user_id)
+
+
 def get_user_multiplier(user_id: str) -> tuple[float, int]:
     with get_connection() as conn:
         row = conn.execute("SELECT pace_multiplier, feedback_samples FROM users WHERE id = ?", (user_id,)).fetchone()

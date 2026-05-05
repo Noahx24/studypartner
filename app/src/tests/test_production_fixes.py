@@ -146,6 +146,40 @@ def test_utcnow_is_timezone_aware():
     assert now.tzinfo is not None
 
 
+def test_patch_user_updates_availability():
+    """SettingsView relies on PATCH /users/{id} to change availability."""
+    _fresh_db()
+    client = TestClient(app)
+    client.post(
+        "/users",
+        json={
+            "id": "u1",
+            "name": "A",
+            "email": "a@x.com",
+            "hours_per_day": 2,
+            "days_per_week": 5,
+        },
+    )
+    r = client.patch(
+        "/users/u1",
+        json={"hours_per_day": 5, "days_per_week": 6, "pace": "fast", "name": "Updated"},
+    )
+    assert r.status_code == 200
+    body = r.json()["user"]
+    assert body["hours_per_day"] == 5
+    assert body["days_per_week"] == 6
+    assert body["pace"] == "fast"
+    assert body["name"] == "Updated"
+
+    # Validation: rejects out-of-range values
+    bad = client.patch("/users/u1", json={"hours_per_day": 99})
+    assert bad.status_code == 400
+
+    # Unknown user -> 404
+    missing = client.patch("/users/nope", json={"hours_per_day": 3})
+    assert missing.status_code == 404
+
+
 def test_sync_applies_session_completion_idempotently():
     """Replaying the same sync op must not double-apply."""
     _fresh_db()
