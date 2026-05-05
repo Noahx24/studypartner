@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.src.routes.ai import router as ai_router
+from app.src.routes.auth import router as auth_router
 from app.src.routes.modules import router as modules_router
 from app.src.routes.moodle import router as moodle_router
 from app.src.routes.packs import router as packs_router
@@ -48,6 +49,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(modules_router)
 app.include_router(plans_router)

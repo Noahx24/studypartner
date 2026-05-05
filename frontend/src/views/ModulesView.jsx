@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Card, Chip, IconBtn, Screen, ScreenHeader, StatCell } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
 import { P, MONO, moduleColor } from '../ui/tokens';
-export function ModulesView({ modules, weekSessions, assessments, onOpenModule, onUpload }) {
+export function ModulesView({ modules, weekSessions, assessments, onOpenModule, onUpload, onOpenMaterials }) {
     const stats = useMemo(() => modules.map((m) => {
         const mSessions = weekSessions.filter((s) => s.module_id === m.id);
         const completed = mSessions.filter((s) => s.status === 'completed').length;
@@ -28,6 +28,13 @@ export function ModulesView({ modules, weekSessions, assessments, onOpenModule, 
           </IconBtn>}/>
 
       <div className="px-4">
+        {onOpenMaterials && (<button onClick={onOpenMaterials} className="mb-3 flex w-full items-center justify-between rounded-card px-4 py-3 text-left" style={{ background: P.surface, border: `1px solid ${P.line}` }}>
+            <span>
+              <span className="mono text-[10px] font-bold uppercase tracking-wider text-ink3" style={{ fontFamily: MONO }}>From Moodle</span>
+              <span className="mt-0.5 block text-[14px] font-semibold text-ink">Pick materials for AI</span>
+            </span>
+            <Icon name="chevronRight" size={16} color={P.ink3}/>
+          </button>)}
         {stats.length === 0 ? (<Card>
             <p className="text-sm text-ink2">
               No modules yet. Upload study material or connect Moodle to get started.

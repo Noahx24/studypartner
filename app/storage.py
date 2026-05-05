@@ -237,6 +237,19 @@ def init_db() -> None:
                 applied_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS auth_states (
+                state TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_subtopics_lu       ON subtopics(learning_unit_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_lu_module          ON learning_units(module_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_artifacts_ref      ON ai_artifacts(scope, ref_id);
@@ -246,6 +259,13 @@ def init_db() -> None:
         )
         _ensure_column(conn, "assessments", "status", "TEXT NOT NULL DEFAULT 'open'")
         _ensure_column(conn, "assessments", "moodle_id", "TEXT")
+        _ensure_column(conn, "users", "microsoft_oid", "TEXT")
+        _ensure_column(conn, "moodle_resources", "included_in_ai", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "moodle_resources", "ingested_at", "TEXT")
+        with conn:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_microsoft_oid ON users(microsoft_oid)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_moodle_resources_module ON moodle_resources(module_id)")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
@@ -258,8 +278,8 @@ def create_user(user: User) -> None:
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO users (id, name, email, hours_per_day, days_per_week, pace, custom_minutes_per_500_words, max_daily_hours, pace_multiplier, feedback_samples)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, 0)
+            INSERT INTO users (id, name, email, hours_per_day, days_per_week, pace, custom_minutes_per_500_words, max_daily_hours, pace_multiplier, feedback_samples, microsoft_oid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, 0, ?)
             """,
             (
                 user.id,
@@ -270,15 +290,12 @@ def create_user(user: User) -> None:
                 user.pace.value,
                 user.custom_minutes_per_500_words,
                 user.max_daily_hours,
+                user.microsoft_oid,
             ),
         )
 
 
-def get_user(user_id: str) -> User | None:
-    with get_connection() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not row:
-        return None
+def _row_to_user(row) -> User:
     return User(
         id=row["id"],
         name=row["name"],
@@ -288,7 +305,31 @@ def get_user(user_id: str) -> User | None:
         pace=Pace(row["pace"]),
         custom_minutes_per_500_words=row["custom_minutes_per_500_words"],
         max_daily_hours=row["max_daily_hours"],
+        microsoft_oid=row["microsoft_oid"] if "microsoft_oid" in row.keys() else None,
     )
+
+
+def get_user(user_id: str) -> User | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _row_to_user(row) if row else None
+
+
+def get_user_by_microsoft_oid(oid: str) -> User | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE microsoft_oid = ?", (oid,)).fetchone()
+    return _row_to_user(row) if row else None
+
+
+def get_user_by_email(email: str) -> User | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", (email,)).fetchone()
+    return _row_to_user(row) if row else None
+
+
+def link_microsoft_oid(user_id: str, oid: str) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE users SET microsoft_oid = ? WHERE id = ?", (oid, user_id))
 
 
 def update_user(user_id: str, fields: dict) -> User | None:
@@ -901,11 +942,21 @@ def update_moodle_sync_time(user_id: str, when: datetime) -> None:
 
 
 def upsert_moodle_resources(resources: list[MoodleResource]) -> None:
+    """Upsert metadata. Preserves the user's `included_in_ai` flag and any
+    `ingested_at` timestamp across syncs so a re-sync doesn't reset the
+    user's material picks."""
     with get_connection() as conn:
         conn.executemany(
             """
-            INSERT OR REPLACE INTO moodle_resources (id, module_id, title, type, file_size, url, downloaded_at)
+            INSERT INTO moodle_resources (id, module_id, title, type, file_size, url, downloaded_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                module_id = excluded.module_id,
+                title     = excluded.title,
+                type      = excluded.type,
+                file_size = excluded.file_size,
+                url       = excluded.url,
+                downloaded_at = excluded.downloaded_at
             """,
             [
                 (r.id, r.module_id, r.title, r.type, r.file_size, r.url, r.downloaded_at.isoformat() if r.downloaded_at else None)
@@ -929,6 +980,93 @@ def list_moodle_resources_for_module(module_id: str) -> list[MoodleResource]:
         )
         for r in rows
     ]
+
+
+def list_moodle_resources_with_selection(user_id: str) -> list[dict]:
+    """Return all resources for a user's modules with their `included_in_ai`
+    and `ingested_at` flags. Joined to `modules` so each row carries enough
+    context for the materials picker UI."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.id, r.module_id, m.name AS module_name, r.title, r.type,
+                   r.file_size, r.url, r.included_in_ai, r.ingested_at
+            FROM moodle_resources r
+            JOIN modules m ON m.id = r.module_id
+            WHERE m.user_id = ?
+            ORDER BY m.name, r.title
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "module_id": r["module_id"],
+            "module_name": r["module_name"],
+            "title": r["title"],
+            "type": r["type"],
+            "file_size": r["file_size"],
+            "url": r["url"],
+            "included_in_ai": bool(r["included_in_ai"]),
+            "ingested_at": r["ingested_at"],
+        }
+        for r in rows
+    ]
+
+
+def set_moodle_resources_included(user_id: str, resource_ids: list[str], included: bool) -> int:
+    """Toggle `included_in_ai` for the given resource ids, but only those
+    belonging to modules the user owns (defence in depth — a stolen session
+    can't flag someone else's resources)."""
+    if not resource_ids:
+        return 0
+    placeholders = ",".join("?" * len(resource_ids))
+    with get_connection() as conn:
+        cur = conn.execute(
+            f"""
+            UPDATE moodle_resources
+               SET included_in_ai = ?
+             WHERE id IN ({placeholders})
+               AND module_id IN (SELECT id FROM modules WHERE user_id = ?)
+            """,
+            (1 if included else 0, *resource_ids, user_id),
+        )
+        return cur.rowcount
+
+
+def list_resources_pending_ingest(user_id: str) -> list[MoodleResource]:
+    """Resources the user picked for AI but that haven't been downloaded yet."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.* FROM moodle_resources r
+            JOIN modules m ON m.id = r.module_id
+            WHERE m.user_id = ?
+              AND r.included_in_ai = 1
+              AND r.ingested_at IS NULL
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        MoodleResource(
+            id=r["id"],
+            module_id=r["module_id"],
+            title=r["title"],
+            type=r["type"],
+            file_size=r["file_size"],
+            url=r["url"],
+            downloaded_at=datetime.fromisoformat(r["downloaded_at"]) if r["downloaded_at"] else None,
+        )
+        for r in rows
+    ]
+
+
+def mark_resource_ingested(resource_id: str, when: datetime) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE moodle_resources SET ingested_at = ? WHERE id = ?",
+            (when.isoformat(), resource_id),
+        )
 
 
 # ---- Assessment (extended) ----
@@ -1012,3 +1150,57 @@ def sync_changes_since(user_id: str, since_iso: str | None) -> list[dict]:
         }
         for r in rows
     ]
+
+
+# ---- Auth: OAuth state + session tokens ----
+
+def save_auth_state(state: str, created: datetime, expires: datetime) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO auth_states (state, created_at, expires_at) VALUES (?, ?, ?)",
+            (state, created.isoformat(), expires.isoformat()),
+        )
+
+
+def consume_auth_state(state: str, now: datetime) -> bool:
+    """Return True if the state existed and was unexpired. Always deletes."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT expires_at FROM auth_states WHERE state = ?", (state,)).fetchone()
+        if not row:
+            return False
+        conn.execute("DELETE FROM auth_states WHERE state = ?", (state,))
+        return datetime.fromisoformat(row["expires_at"]) >= now
+
+
+def create_auth_session(token: str, user_id: str, created: datetime, expires: datetime) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO auth_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token, user_id, created.isoformat(), expires.isoformat()),
+        )
+
+
+def get_session_user_id(token: str, now: datetime) -> str | None:
+    """Return the user_id behind a session token if it's still valid."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT user_id, expires_at FROM auth_sessions WHERE token = ?",
+            (token,),
+        ).fetchone()
+    if not row:
+        return None
+    if datetime.fromisoformat(row["expires_at"]) < now:
+        return None
+    return row["user_id"]
+
+
+def delete_auth_session(token: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
+
+
+def purge_expired_auth(now: datetime) -> None:
+    """Housekeeping — called on auth flows to keep the table small."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM auth_states WHERE expires_at < ?", (now.isoformat(),))
+        conn.execute("DELETE FROM auth_sessions WHERE expires_at < ?", (now.isoformat(),))

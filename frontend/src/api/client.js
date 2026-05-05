@@ -1,5 +1,6 @@
 import { isoDate, startOfWeek } from '../utils/date';
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const TOKEN_KEY = 'studypartner.auth_token';
 // Timeouts stop the UI hanging indefinitely on a flaky connection and make
 // offline states recoverable. Pack downloads are longer because they stream.
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -8,7 +9,38 @@ class NetworkError extends Error {
 }
 class TimeoutError extends Error {
 }
+class AuthRequiredError extends Error {
+    constructor() {
+        super('Sign in required');
+    }
+}
+export const auth = {
+    get token() {
+        try {
+            return localStorage.getItem(TOKEN_KEY);
+        }
+        catch {
+            return null;
+        }
+    },
+    set(token) {
+        try {
+            if (token)
+                localStorage.setItem(TOKEN_KEY, token);
+            else
+                localStorage.removeItem(TOKEN_KEY);
+        }
+        catch {
+            /* private mode / disabled storage */
+        }
+    },
+    clear() {
+        auth.set(null);
+    },
+};
 function friendlyError(err, path) {
+    if (err instanceof AuthRequiredError)
+        return err;
     if (err instanceof TimeoutError)
         return new Error('Request timed out — check your connection.');
     if (err instanceof NetworkError)
@@ -38,13 +70,21 @@ async function fetchWithTimeout(input, init, timeoutMs) {
 }
 const request = async (path, init) => {
     try {
+        const headers = {
+            ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+            ...init?.headers,
+        };
+        const tok = auth.token;
+        if (tok && !headers.Authorization)
+            headers.Authorization = `Bearer ${tok}`;
         const response = await fetchWithTimeout(`${API_BASE}${path}`, {
-            headers: {
-                ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-                ...init?.headers,
-            },
             ...init,
+            headers,
         }, DEFAULT_TIMEOUT_MS);
+        if (response.status === 401) {
+            auth.clear();
+            throw new AuthRequiredError();
+        }
         if (!response.ok) {
             const text = await response.text().catch(() => '');
             throw new Error(text || `Request failed (${response.status})`);
@@ -157,15 +197,27 @@ export const api = {
         body: JSON.stringify(payload),
     }),
     // --- Moodle ---
-    moodleConnect: (payload) => request('/moodle/connect', {
+    // user_id is no longer sent — the backend reads it from the bearer token.
+    moodleConnect: ({ base_url, token }) => request('/moodle/connect', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ base_url, token }),
     }),
-    moodleSync: (user_id) => request('/moodle/sync', {
+    moodleSync: () => request('/moodle/sync', { method: 'POST', body: '{}' }),
+    moodleIcsImport: ({ ics_text }) => request('/moodle/ics/import', { method: 'POST', body: JSON.stringify({ ics_text }) }),
+    listMaterials: () => request('/moodle/materials'),
+    selectMaterials: ({ include = [], exclude = [] }) => request('/moodle/materials/select', {
         method: 'POST',
-        body: JSON.stringify({ user_id }),
+        body: JSON.stringify({ include, exclude }),
     }),
-    moodleIcsImport: (payload) => request('/moodle/ics/import', { method: 'POST', body: JSON.stringify(payload) }),
+    ingestSelectedMaterials: () => request('/moodle/materials/ingest', { method: 'POST', body: '{}' }),
+    // --- Auth (Microsoft) ---
+    authStart: () => request('/auth/microsoft/start'),
+    authMe: () => request('/auth/me'),
+    authLogout: () => request('/auth/logout', { method: 'POST' }),
+    authDevSignIn: ({ email, name }) => request('/auth/microsoft/dev', {
+        method: 'POST',
+        body: JSON.stringify({ email, name }),
+    }),
     // --- Sync ---
     sync: (payload) => request('/sync', { method: 'POST', body: JSON.stringify(payload) }),
 };

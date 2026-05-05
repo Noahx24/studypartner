@@ -231,6 +231,52 @@ def fetch_resource_bytes(user_id: str, url: str) -> bytes:
         raise MoodleError(f"Resource fetch failed: {exc}") from exc
 
 
+def ingest_selected_materials(user_id: str) -> dict:
+    """Download every resource the user picked for AI and run it through
+    the same ingestion pipeline as a manual upload. Idempotent — anything
+    already marked `ingested_at` is skipped."""
+    from app.src.models import ModuleType
+    from app.src.models.services.ingestion_service import ingest_moodle_resource
+    from app.storage import (
+        get_user,
+        list_resources_pending_ingest,
+        mark_resource_ingested,
+    )
+
+    user = get_user(user_id)
+    if not user:
+        raise MoodleError("Unknown user")
+    pending = list_resources_pending_ingest(user_id)
+    ingested: list[str] = []
+    skipped: list[dict] = []
+
+    for r in pending:
+        if not r.url:
+            skipped.append({"id": r.id, "reason": "no url"})
+            continue
+        try:
+            content = fetch_resource_bytes(user_id, r.url)
+        except MoodleError as exc:
+            skipped.append({"id": r.id, "reason": str(exc)})
+            continue
+        try:
+            ingest_moodle_resource(
+                user=user,
+                module_id=r.module_id,
+                module_name=r.module_id,
+                module_type=ModuleType.semester,
+                resource_title=r.title,
+                resource_content=content,
+                resource_filename=r.title or "resource",
+            )
+            mark_resource_ingested(r.id, utcnow_aware())
+            ingested.append(r.id)
+        except Exception as exc:  # ingestion can fail on unsupported types
+            skipped.append({"id": r.id, "reason": f"ingest failed: {exc}"})
+
+    return {"ingested": ingested, "skipped": skipped, "count": len(ingested)}
+
+
 # ---- ICS fallback ----
 
 def import_ics(user_id: str, ics_text: str) -> dict:
