@@ -227,7 +227,7 @@ frontend/
 python -m venv .venv
 source .venv/bin/activate
 pip install -e app/.[dev,pdf]
-export STUDYPARTNER_MOODLE_BASE_URL=https://mymodules.dtls.unisa.ac.z
+export STUDYPARTNER_MOODLE_BASE_URL=https://mymodules.dtls.unisa.ac.za
 uvicorn app.main:app --reload
 ```
 
@@ -235,7 +235,7 @@ uvicorn app.main:app --reload
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e "app/.[dev,pdf]"
-$env:STUDYPARTNER_MOODLE_BASE_URL="https://mymodules.dtls.unisa.ac.z"
+$env:STUDYPARTNER_MOODLE_BASE_URL="https://mymodules.dtls.unisa.ac.za"
 uvicorn app.main:app --reload
 ```
 
