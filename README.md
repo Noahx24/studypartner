@@ -76,7 +76,7 @@ guarantee acceptance, wrap StudyPartner in Capacitor and use a custom
 ### Required env var
 
 ```bash
-export STUDYPARTNER_MOODLE_BASE_URL=https://lms.unisa.ac.za
+export STUDYPARTNER_MOODLE_BASE_URL=https://mymodules.dtls.unisa.ac.za
 ```
 
 The frontend doesn't need to know the URL — the backend resolves it.
@@ -227,7 +227,15 @@ frontend/
 python -m venv .venv
 source .venv/bin/activate
 pip install -e app/.[dev,pdf]
-export STUDYPARTNER_MOODLE_BASE_URL=https://lms.unisa.ac.za
+export STUDYPARTNER_MOODLE_BASE_URL=https://mymodules.dtls.unisa.ac.z
+uvicorn app.main:app --reload
+```
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e "app/.[dev,pdf]"
+$env:STUDYPARTNER_MOODLE_BASE_URL="https://mymodules.dtls.unisa.ac.z"
 uvicorn app.main:app --reload
 ```
 
