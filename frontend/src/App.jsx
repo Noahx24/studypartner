@@ -6,6 +6,8 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './views/Dashboard';
 import Modules from './views/Modules';
+import MoodleMaterials from './views/MoodleMaterials';
+import MoodleCallback from './views/MoodleCallback';
 import CalendarView from './views/CalendarView';
 import StudyPlan from './views/StudyPlan';
 import Profile from './views/Profile';
@@ -29,10 +31,12 @@ const AuthenticatedApp = () => {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/modules" element={<Modules />} />
+        <Route path="/modules/materials" element={<MoodleMaterials />} />
         <Route path="/calendar" element={<CalendarView />} />
         <Route path="/plan" element={<StudyPlan />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
+      <Route path="/moodle/callback" element={<MoodleCallback />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

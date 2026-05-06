@@ -237,6 +237,14 @@ def init_db() -> None:
                 applied_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS moodle_launch_passports (
+                passport TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_subtopics_lu       ON subtopics(learning_unit_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_lu_module          ON learning_units(module_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_artifacts_ref      ON ai_artifacts(scope, ref_id);
@@ -247,6 +255,11 @@ def init_db() -> None:
         _ensure_column(conn, "assessments", "status", "TEXT NOT NULL DEFAULT 'open'")
         _ensure_column(conn, "assessments", "moodle_id", "TEXT")
         _ensure_column(conn, "users", "password_hash", "TEXT")
+        _ensure_column(conn, "moodle_resources", "included_in_ai", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "moodle_resources", "ingested_at", "TEXT")
+        with conn:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_moodle_resources_module ON moodle_resources(module_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_passports_expiry ON moodle_launch_passports(expires_at)")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
@@ -891,17 +904,145 @@ def update_moodle_sync_time(user_id: str, when: datetime) -> None:
 
 
 def upsert_moodle_resources(resources: list[MoodleResource]) -> None:
+    """Upsert metadata. Preserves the user's `included_in_ai` flag and any
+    `ingested_at` timestamp across syncs so a re-sync doesn't reset the
+    user's material picks."""
     with get_connection() as conn:
         conn.executemany(
             """
-            INSERT OR REPLACE INTO moodle_resources (id, module_id, title, type, file_size, url, downloaded_at)
+            INSERT INTO moodle_resources (id, module_id, title, type, file_size, url, downloaded_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                module_id     = excluded.module_id,
+                title         = excluded.title,
+                type          = excluded.type,
+                file_size     = excluded.file_size,
+                url           = excluded.url,
+                downloaded_at = excluded.downloaded_at
             """,
             [
                 (r.id, r.module_id, r.title, r.type, r.file_size, r.url, r.downloaded_at.isoformat() if r.downloaded_at else None)
                 for r in resources
             ],
         )
+
+
+def list_moodle_resources_with_selection(user_id: str) -> list[dict]:
+    """All resources across the user's modules, joined to the module name,
+    with each row's AI selection state — feeds the materials picker UI."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.id, r.module_id, m.name AS module_name, r.title, r.type,
+                   r.file_size, r.url, r.included_in_ai, r.ingested_at
+            FROM moodle_resources r
+            JOIN modules m ON m.id = r.module_id
+            WHERE m.user_id = ?
+            ORDER BY m.name, r.title
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "module_id": r["module_id"],
+            "module_name": r["module_name"],
+            "title": r["title"],
+            "type": r["type"],
+            "file_size": r["file_size"],
+            "url": r["url"],
+            "included_in_ai": bool(r["included_in_ai"]),
+            "ingested_at": r["ingested_at"],
+        }
+        for r in rows
+    ]
+
+
+def set_moodle_resources_included(user_id: str, resource_ids: list[str], included: bool) -> int:
+    """Toggle `included_in_ai`, scoped to resources whose module belongs to
+    `user_id` — defence in depth against a stolen session flipping someone
+    else's resources."""
+    if not resource_ids:
+        return 0
+    placeholders = ",".join("?" * len(resource_ids))
+    with get_connection() as conn:
+        cur = conn.execute(
+            f"""
+            UPDATE moodle_resources
+               SET included_in_ai = ?
+             WHERE id IN ({placeholders})
+               AND module_id IN (SELECT id FROM modules WHERE user_id = ?)
+            """,
+            (1 if included else 0, *resource_ids, user_id),
+        )
+        return cur.rowcount
+
+
+def list_resources_pending_ingest(user_id: str) -> list[MoodleResource]:
+    """Resources the user has flagged for AI but that haven't been
+    downloaded + ingested yet."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.* FROM moodle_resources r
+            JOIN modules m ON m.id = r.module_id
+            WHERE m.user_id = ?
+              AND r.included_in_ai = 1
+              AND r.ingested_at IS NULL
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        MoodleResource(
+            id=r["id"],
+            module_id=r["module_id"],
+            title=r["title"],
+            type=r["type"],
+            file_size=r["file_size"],
+            url=r["url"],
+            downloaded_at=datetime.fromisoformat(r["downloaded_at"]) if r["downloaded_at"] else None,
+        )
+        for r in rows
+    ]
+
+
+def mark_resource_ingested(resource_id: str, when: datetime) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE moodle_resources SET ingested_at = ? WHERE id = ?",
+            (when.isoformat(), resource_id),
+        )
+
+
+# ---- Moodle launch passports (CSRF protection for the mobile-launch flow) ----
+
+def save_launch_passport(passport: str, user_id: str, base_url: str, created: datetime, expires: datetime) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO moodle_launch_passports (passport, user_id, base_url, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (passport, user_id, base_url, created.isoformat(), expires.isoformat()),
+        )
+
+
+def consume_launch_passport(passport: str, now: datetime) -> tuple[str, str] | None:
+    """Atomically claim a passport. Returns (user_id, base_url) if it was
+    valid and unexpired. Always deletes."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT user_id, base_url, expires_at FROM moodle_launch_passports WHERE passport = ?",
+            (passport,),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute("DELETE FROM moodle_launch_passports WHERE passport = ?", (passport,))
+        if datetime.fromisoformat(row["expires_at"]) < now:
+            return None
+        return row["user_id"], row["base_url"]
+
+
+def purge_expired_launch_passports(now: datetime) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM moodle_launch_passports WHERE expires_at < ?", (now.isoformat(),))
 
 
 def list_moodle_resources_for_module(module_id: str) -> list[MoodleResource]:

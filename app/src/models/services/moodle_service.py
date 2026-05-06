@@ -1,18 +1,26 @@
-"""Moodle Web Services integration (primary) + ICS calendar import (fallback).
+"""Moodle Web Services integration via the mobile-launch flow.
 
-- Uses stdlib urllib (no new deps).
-- Fetches courses, assignments, and resource metadata ONLY.
-- Does NOT download file contents during sync — lazy fetch on explicit user action.
-- Token is stored using a light base64 envelope. For production, replace
-  `encrypt_token` / `decrypt_token` with Fernet (cryptography package).
+- Connection happens via Moodle's `tool_mobile/launch.php` endpoint.
+  StudyPartner sends the user there with a passport + return URL; the
+  user signs in via the school's existing SSO (Microsoft/SAML/OIDC);
+  Moodle redirects back with a base64 token blob; we decode + store it.
+- Sync fetches courses → modules, assignments → assessments, and
+  resource METADATA only — file bytes are pulled later, only for
+  resources the user has flagged for AI processing.
+- Stored tokens are wrapped in a base64 envelope today; swap
+  `encrypt_token` / `decrypt_token` for Fernet (cryptography package)
+  before production.
 """
 from __future__ import annotations
 
 import base64
-from datetime import date, datetime
+import binascii
+from datetime import date, datetime, timedelta
+import hashlib
 import json
 import logging
 import re
+import secrets
 from typing import Any
 import urllib.parse
 import urllib.request
@@ -32,11 +40,20 @@ from app.src.models import (
 from app.storage import (
     add_assessment,
     add_module,
+    consume_launch_passport,
     get_moodle_account_raw,
+    list_resources_pending_ingest,
+    mark_resource_ingested,
+    purge_expired_launch_passports,
+    save_launch_passport,
     save_moodle_account,
     update_moodle_sync_time,
     upsert_moodle_resources,
 )
+
+
+LAUNCH_PASSPORT_TTL = timedelta(minutes=10)
+LAUNCH_SERVICE = "moodle_mobile_app"
 
 
 # ---- Token envelope (swap for Fernet in production) ----
@@ -112,18 +129,81 @@ def _flatten(params: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     return out
 
 
-# ---- Public operations ----
+# ---- Mobile-launch connection flow ----
 
-def connect(user_id: str, base_url: str, token: str) -> dict:
-    """Verify the token by calling `core_webservice_get_site_info`, then store."""
+def build_launch_url(user_id: str, base_url: str, urlscheme: str) -> dict:
+    """Begin the Moodle mobile-launch handshake.
+
+    Returns the URL the browser should navigate to plus the passport we'll
+    expect back. The passport is stored server-side keyed by user_id and
+    expires in 10 minutes — that's our CSRF guard.
+
+    `urlscheme` is where Moodle should redirect once SSO completes. For a
+    web app pass `https://app.example.com/moodle/callback?` (note the
+    trailing `?` — Moodle appends `token=…` directly to the string).
+    For a native app, pass a custom scheme like `studypartner://`.
+    """
+    purge_expired_launch_passports(utcnow_aware())
+    passport = secrets.token_urlsafe(16)
+    now = utcnow_aware()
+    save_launch_passport(passport, user_id, base_url.rstrip("/"), now, now + LAUNCH_PASSPORT_TTL)
+    params = {
+        "service": LAUNCH_SERVICE,
+        "passport": passport,
+        "urlscheme": urlscheme,
+    }
+    launch_url = f"{base_url.rstrip('/')}/admin/tool/mobile/launch.php?{urllib.parse.urlencode(params)}"
+    return {"launch_url": launch_url, "passport": passport}
+
+
+def accept_launch_token(passport: str, encoded_token: str) -> dict:
+    """Process the token blob Moodle hands back at the end of the launch
+    redirect chain.
+
+    Moodle returns a base64 string that decodes to
+    `<signature>:::<token>:::<privatetoken>` where signature is
+    `md5(siteid + passport)`. We:
+      1. Look up the passport (CSRF check + bind to a user_id).
+      2. Decode the blob.
+      3. Use the WS token to call `core_webservice_get_site_info` —
+         this gives us the siteid we need to verify the signature, AND
+         doubles as a token validity check.
+      4. Verify the signature matches.
+      5. Persist the token against the user.
+    """
+    record = consume_launch_passport(passport, utcnow_aware())
+    if not record:
+        raise MoodleError("Invalid or expired passport")
+    user_id, base_url = record
+
+    try:
+        raw = base64.b64decode(encoded_token, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        raise MoodleError("Malformed token blob") from exc
+
+    parts = raw.split(":::")
+    if len(parts) < 2:
+        raise MoodleError("Unexpected token blob format")
+    signature, token = parts[0], parts[1]
+
     info = _ws_call(base_url, token, "core_webservice_get_site_info")
     if not isinstance(info, dict) or "userid" not in info:
-        raise MoodleError("Invalid site-info response")
+        raise MoodleError("Token rejected by Moodle")
+
+    siteid = str(info.get("siteid") or info.get("userid"))
+    expected = hashlib.md5(f"{siteid}{passport}".encode("utf-8")).hexdigest()
+    if not secrets.compare_digest(expected, signature):
+        raise MoodleError("Token signature mismatch — possible CSRF / replay")
+
     save_moodle_account(
         MoodleAccount(user_id=user_id, base_url=base_url, token=token, last_sync=None),
         encrypt_token(token),
     )
-    return {"sitename": info.get("sitename"), "moodle_user_id": info.get("userid")}
+    return {
+        "user_id": user_id,
+        "sitename": info.get("sitename"),
+        "moodle_user_id": info.get("userid"),
+    }
 
 
 def sync(user_id: str) -> dict:
@@ -233,6 +313,51 @@ def fetch_resource_bytes(user_id: str, url: str) -> bytes:
             return resp.read()
     except Exception as exc:
         raise MoodleError(f"Resource fetch failed: {exc}") from exc
+
+
+def ingest_selected_materials(user_id: str) -> dict:
+    """Download and ingest every resource the user flagged for AI.
+
+    Idempotent — resources already marked `ingested_at` are skipped on
+    re-runs. Failures on individual resources don't abort the batch;
+    they're collected in `skipped` so the UI can show what didn't make it.
+    """
+    from app.src.models.services.ingestion_service import ingest_moodle_resource
+    from app.storage import get_user
+
+    user = get_user(user_id)
+    if not user:
+        raise MoodleError("Unknown user")
+    pending = list_resources_pending_ingest(user_id)
+    ingested: list[str] = []
+    skipped: list[dict] = []
+
+    for r in pending:
+        if not r.url:
+            skipped.append({"id": r.id, "reason": "no url"})
+            continue
+        try:
+            content = fetch_resource_bytes(user_id, r.url)
+        except MoodleError as exc:
+            skipped.append({"id": r.id, "reason": str(exc)})
+            continue
+        try:
+            ingest_moodle_resource(
+                user=user,
+                module_id=r.module_id,
+                module_name=r.module_id,
+                module_type=ModuleType.semester,
+                resource_title=r.title,
+                resource_content=content,
+                resource_filename=r.title or "resource",
+            )
+            mark_resource_ingested(r.id, utcnow_aware())
+            ingested.append(r.id)
+        except Exception as exc:
+            logger.warning("Failed to ingest resource %s: %s", r.id, exc)
+            skipped.append({"id": r.id, "reason": f"ingest failed: {exc}"})
+
+    return {"ingested": ingested, "skipped": skipped, "count": len(ingested)}
 
 
 # ---- ICS fallback ----
