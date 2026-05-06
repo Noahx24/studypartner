@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, BookOpen, Search, AlertTriangle, Calendar } from 'lucide-react';
+import { Plus, BookOpen, Search, AlertTriangle, Calendar, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import ModuleCard from '../components/modules/ModuleCard';
 import AddModuleDialog from '../components/modules/AddModuleDialog';
+import FetchFromMyModulesButton from '../components/modules/FetchFromMyModulesButton';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
@@ -50,6 +52,16 @@ export default function Modules() {
         </div>
         <Button onClick={() => setDialogOpen(true)} className="rounded-xl">
           <Plus className="w-4 h-4 mr-1" /> Add
+        </Button>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2 mb-4">
+        <FetchFromMyModulesButton className="rounded-xl flex-1" />
+        <Button asChild variant="outline" className="rounded-xl flex-1">
+          <Link to="/modules/materials">
+            <Sparkles className="w-4 h-4 mr-2" />
+            Pick materials for AI
+          </Link>
         </Button>
       </div>
 

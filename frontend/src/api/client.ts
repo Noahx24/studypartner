@@ -226,21 +226,54 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  // --- Moodle ---
-  moodleConnect: (payload: { user_id: string; base_url: string; token: string }) =>
-    request<{ sitename: string; moodle_user_id: number }>('/moodle/connect', {
+  // --- Moodle (mobile-launch flow only — no manual token paste) ---
+  moodleLaunch: (payload: { urlscheme: string; base_url?: string }) =>
+    request<{ launch_url: string; passport: string }>('/moodle/launch', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  moodleSync: (user_id: string) =>
-    request<{ modules_synced: number; assessments_synced: number; last_sync: string }>('/moodle/sync', {
-      method: 'POST',
-      body: JSON.stringify({ user_id }),
-    }),
+  moodleLaunchCallback: (payload: { passport: string; token: string }) =>
+    request<{ user_id: string; sitename: string; moodle_user_id: number }>(
+      '/moodle/launch/callback',
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+
+  moodleSync: () =>
+    request<{ modules_synced: number; assessments_synced: number; last_sync: string }>(
+      '/moodle/sync',
+      { method: 'POST', body: '{}' },
+    ),
 
   moodleIcsImport: (payload: { user_id: string; ics_text: string }) =>
     request<{ events_imported: number }>('/moodle/ics/import', { method: 'POST', body: JSON.stringify(payload) }),
+
+  listMaterials: () =>
+    request<{
+      resources: Array<{
+        id: string;
+        module_id: string;
+        module_name: string;
+        title: string;
+        type: string;
+        file_size: number | null;
+        url: string | null;
+        included_in_ai: boolean;
+        ingested_at: string | null;
+      }>;
+    }>('/moodle/materials'),
+
+  selectMaterials: (payload: { include?: string[]; exclude?: string[] }) =>
+    request<{ included: number; excluded: number }>('/moodle/materials/select', {
+      method: 'POST',
+      body: JSON.stringify({ include: payload.include ?? [], exclude: payload.exclude ?? [] }),
+    }),
+
+  ingestSelectedMaterials: () =>
+    request<{ ingested: string[]; skipped: { id: string; reason: string }[]; count: number }>(
+      '/moodle/materials/ingest',
+      { method: 'POST', body: '{}' },
+    ),
 
   // --- Sync ---
   sync: (payload: { user_id: string; ops: unknown[]; last_pulled_at?: string }) =>

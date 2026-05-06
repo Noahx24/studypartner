@@ -1,146 +1,178 @@
-# StudyPartner — an AI-powered study planning system for busy students balancing work, life, and deadlines.
+# StudyPartner
 
-## CORE OBJECTIVE
+An AI-powered study planning system for working students with limited
+time and limited data. StudyPartner ingests course material, estimates
+how long it will take to learn, fits it into the student's actual
+availability, and adapts the plan when life gets in the way.
 
-Help users consistently make progress in their studies by:
+## What it does
 
-Turning unstructured study material into structured plans
-Allocating realistic study time based on their availability
-Adapting when users fall behind
-Prioritizing what matters most (deadlines, workload, pace)
+- **Ingests** notes, PDFs, DOCX, textbooks, past papers, and Moodle content.
+- **Estimates workload** from page count, word count, and a content-complexity score.
+- **Fits the schedule** to each student's real availability (e.g. "5 hours a day, 4 days a week").
+- **Generates a daily study plan** that respects deadlines and module priority.
+- **Adapts** when a student falls behind — completed sessions feed a personal pace multiplier and remaining work is rescheduled.
+- **Mobile-first and low-data**: a 440-px web shell, IndexedDB offline cache, manual-first sync, and lazy material downloads (Moodle metadata is pulled at sync time; bytes only when the user picks a file for AI).
 
+## Authentication
 
-# StudyPartner Backend Service
+Two separate concerns:
+
+| | Mechanism | Where |
+|---|---|---|
+| **StudyPartner login** | Email + password, PBKDF2 hashed, HMAC-signed JWT | `app/src/models/services/auth_service.py` · `POST /users/register` · `POST /users/login` · `GET /users/me` |
+| **Moodle connection** | Moodle's mobile-launch flow — student is signed into the school's existing SSO (Microsoft) and Moodle hands us back a Web Services token | `app/src/models/services/moodle_service.py` · `POST /moodle/launch` · `POST /moodle/launch/callback` |
+
+Microsoft sign-in is **not** a StudyPartner identity. It's just where
+the student already is when they sign into Moodle. The launch flow
+piggybacks on that existing SSO so we receive a Moodle WS token
+without ever seeing the Microsoft password and without asking the
+student to paste a token manually.
+
+## Connecting Moodle (mobile-launch flow)
+
+```
+1. Student clicks "Fetch from myModules" in StudyPartner
+2. Frontend  → POST /moodle/launch { urlscheme: "https://app/moodle/callback?" }
+   Backend   → mints a single-use passport (10-min TTL, server-side)
+              → returns
+                <MOODLE>/admin/tool/mobile/launch.php
+                  ?service=moodle_mobile_app
+                  &passport=<random>
+                  &urlscheme=https://app/moodle/callback?
+3. Frontend stashes the passport in localStorage and navigates the
+   browser to launch_url.
+4. Moodle sees the user isn't signed in → redirects to the school's
+   Microsoft tenant.
+5. Microsoft authenticates the student → asserts identity back to Moodle.
+6. Moodle creates a WS token for that user, redirects to:
+        https://app/moodle/callback?token=<base64-blob>
+7. The /moodle/callback page in StudyPartner reads `token` from the
+   URL, reads `passport` from localStorage, POSTs both to
+   /moodle/launch/callback.
+8. Backend:
+        - claims the passport (single-use; CSRF guard)
+        - decodes blob → <signature>:::<token>:::<privatetoken>
+        - calls Moodle to fetch siteid (also validates the token works)
+        - verifies signature == md5(siteid + passport)
+        - persists the WS token against the StudyPartner user
+9. Frontend automatically calls /moodle/sync, then routes to the
+   materials picker.
+```
+
+The blob format and the signed-passport handshake are exactly what
+Moodle's official mobile app uses — no scraping, no cookie reuse, no
+manual paste.
+
+### Required Moodle config
+
+UniSA's Moodle (or any Moodle running `tool_mobile`) needs to accept
+the `urlscheme` we send. For an `https://` callback, the site admin
+must allow web-app launches. If the site rejects our callback URL the
+launch fails — **there is no manual-paste fallback** by design. To
+guarantee acceptance, wrap StudyPartner in Capacitor and use a custom
+`studypartner://` scheme.
+
+### Required env var
+
+```bash
+export STUDYPARTNER_MOODLE_BASE_URL=https://lms.unisa.ac.za
+```
+
+The frontend doesn't need to know the URL — the backend resolves it.
+
+## Selecting which materials feed the AI
+
+After a Moodle sync, every imported resource shows up in
+`/modules/materials` with an `included_in_ai` flag. The student ticks
+the files they actually want StudyPartner to summarise, quiz, or break
+into subtopics — typically the study guide and tutorial letters. Until
+a file is ticked, **no bytes are downloaded** from Moodle.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /moodle/materials` | list all imported resources, grouped by module, with `included_in_ai` |
+| `POST /moodle/materials/select` | toggle a list of resource ids in/out (scoped to current user) |
+| `POST /moodle/materials/ingest` | download bytes + run AI ingestion for everything currently ticked (idempotent) |
+
+Re-syncs preserve the user's selection — `upsert_moodle_resources`
+uses `ON CONFLICT DO UPDATE` and explicitly leaves `included_in_ai`
+and `ingested_at` alone.
 
 ## Project structure
 
-```text
+```
 app/
   main.py
-  models/
-    __init__.py
-    entities.py
-  routes/
-    users.py
-    modules.py
-    plans.py
-  services/
-    planning_service.py
-    ingestion_service.py
-    personalization_service.py
   storage.py
-tests/
-  test_planner.py
+  src/
+    models/
+      entities.py
+      services/
+        ai_service.py
+        auth_service.py            # PBKDF2 + JWT (StudyPartner login)
+        content_analysis_service.py
+        feedback_service.py
+        ingestion_service.py
+        moodle_service.py          # Mobile-launch flow + selective ingestion
+        personalization_service.py
+        planning_service.py
+        study_pack_service.py
+        sync_service.py
+    routes/
+      ai.py
+      modules.py
+      moodle.py                    # /moodle/{launch,launch/callback,sync,materials,…}
+      packs.py
+      plans.py
+      selection.py
+      sync.py
+      users.py                     # /users/{register,login,me}
+    tests/
+      test_moodle_launch_and_materials.py
+      test_pipeline.py
+      test_planner.py
+      test_production_fixes.py
+    utils/
+      auth.py                      # get_current_user dependency
+      time.py
+
+frontend/
+  src/
+    App.jsx
+    api/{client,sync}.ts
+    components/
+      modules/
+        FetchFromMyModulesButton.jsx
+        ModuleCard.jsx
+        AddModuleDialog.jsx
+      ui/                           # shadcn primitives
+    db/{schema,repos}.js            # Dexie/IndexedDB outbox for offline
+    lib/{AuthContext,query-client,utils}.{jsx,ts}
+    views/
+      Login.jsx
+      Dashboard.jsx
+      Modules.jsx
+      MoodleMaterials.jsx
+      MoodleCallback.jsx
+      CalendarView.jsx
+      StudyPlan.jsx
+      Profile.jsx
 ```
 
-## Run
+## Running locally
+
+### Backend
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-
+pip install -e app/.[dev,pdf]
+export STUDYPARTNER_MOODLE_BASE_URL=https://lms.unisa.ac.za
 uvicorn app.main:app --reload
 ```
 
-## Implemented data models
-
-- User
-- Module
-- Assessment
-- StudyTopic
-- StudyUnit
-- Session
-- SessionFeedback (storage table)
-- WeeklyPlan / WeeklyModuleSummary
-
-## Implemented core services
-
-`app/services/planning_service.py`
-- `content_to_units()`
-- `estimate_time()`
-- `calculate_priority()`
-- `allocate_time()`
-- `generate_sessions()`
-- `reschedule()`
-
-`app/services/ingestion_service.py`
-- deterministic extraction (`.txt`, `.pdf`)
-- cleaning, topic parsing, upload+ingest pipeline
-
-`app/services/personalization_service.py`
-- pace multiplier update via session feedback
-- smoothing, clamping, outlier filtering
-
-## API endpoints
-
-- `POST /users` create user
-- `GET /users/{user_id}` get user
-- `POST /modules` add module
-- `POST /assessments` add assessment
-- `POST /upload` upload content and generate units
-- `POST /plans/generate` generate weekly plan
-- `GET /plans/daily/{user_id}/{for_date}` get daily plan
-- `POST /plans/sessions/{session_id}/complete` mark session complete
-- `POST /plans/session/feedback` submit estimated vs actual feedback
-- `POST /plans/reschedule` trigger reschedule
-- `GET /modules/{id}/content` content summary
-- `GET /modules/{id}/study-units` units summary
-
-## Time feedback + personalization
-
-- Feedback payload stores:
-  - `study_unit_id`
-  - `estimated_time_minutes`
-  - `actual_time_minutes`
-  - timestamp
-- User has `pace_multiplier` with default `1.0`
-- Update rule:
-  - `ratio = actual / estimated`
-  - `new = old*0.8 + ratio*0.2` (or gentler `0.9/0.1` before 3 samples)
-- Outlier guard: ignore ratio `<0.3` or `>3.0`
-- Clamp multiplier between `0.7` and `1.5`
-- Multiplier is applied to future estimates only
-
-Example:
-- Before estimate: `45`
-- User multiplier after feedback: `1.3`
-- New estimate: `58.5 ≈ 60`
-
-## Example flow
-
-1. Create user
-2. Add module + assessment
-3. Upload content
-4. Generate weekly plan
-5. Complete a session
-6. Submit feedback:
-
-
-## Rescheduling demo
-
-Run:
-```bash
-python -m app.utils.example_flow
-```
-
-The demo:
-- generates a plan
-- marks first session complete
-- sends feedback
-- updates multiplier
-- reschedules remaining work
-
-## Tests
-
-```bash
-pytest -q
-```
-
-## Frontend app (React + Tailwind)
-
-A full web frontend is available in `frontend/` and integrates with the backend endpoints.
-
-### Run frontend
+### Frontend
 
 ```bash
 cd frontend
@@ -148,24 +180,82 @@ npm install
 npm run dev
 ```
 
-Set API base URL (optional):
+Frontend defaults to `http://localhost:5173`, backend to
+`http://localhost:8000`. Override with `VITE_API_BASE_URL` if either
+moves.
+
+## API surface (selected)
+
+**Users / auth**
+
+- `POST /users/register` · `POST /users/login` · `GET /users/me`
+- `GET /users/{id}` · `PATCH /users/{id}` (self-only)
+
+**Planning**
+
+- `POST /modules` · `POST /assessments`
+- `POST /upload` (multipart .pdf/.docx/.txt)
+- `POST /plans/generate` · `GET /plans/daily/{user_id}/{date}`
+- `POST /plans/sessions/{id}/complete` · `POST /plans/session/feedback`
+- `POST /plans/reschedule`
+
+**Moodle (mobile-launch flow)**
+
+- `POST /moodle/launch` — start the SSO handshake
+- `POST /moodle/launch/callback` — finish the handshake
+- `POST /moodle/sync` — pull modules + assignments + resource metadata
+- `POST /moodle/ics/import` — minimal ICS fallback for deadlines
+- `GET  /moodle/materials` — list resources with AI selection state
+- `POST /moodle/materials/select` — toggle which resources feed AI
+- `POST /moodle/materials/ingest` — download + ingest the ticked ones
+
+**AI / packs / sync**
+
+- `POST /selection` · `GET /selection/latest/{user_id}/{module_id}`
+- `POST /ai/preview` · `POST /ai/regenerate`
+- `POST /pack/generate` · `GET /pack/{id}` · `GET /pack/{id}/download`
+- `POST /sync` — manual-first delta sync
+
+## Time feedback + personalization
+
+- Each completed session collects an estimated-vs-actual ratio.
+- The user's `pace_multiplier` is updated with EMA smoothing
+  (`0.9·old + 0.1·ratio` for the first 3 samples, `0.8·old + 0.2·ratio`
+  thereafter), clamped to `[0.7, 1.5]`, with outlier ratios (`<0.3` or
+  `>3.0`) ignored.
+- The multiplier is applied to all future estimates only — past plans
+  are not retroactively rewritten.
+
+## Tests
 
 ```bash
-VITE_API_BASE_URL=http://127.0.0.1:8000
+pytest -q
 ```
 
-### Frontend structure
+`test_moodle_launch_and_materials.py` covers:
 
-```text
-frontend/
-  src/
-    api/client.js
-    components/
-    lib/date.js
-    pages/
-      LandingPage.jsx
-      DashboardPage.jsx
-      TodayPage.jsx
-      WeekPage.jsx
-      ModulesPage.jsx
-      SettingsPage.jsx
+- Launch URL construction and passport binding
+- Auth-required launch endpoint (401 without bearer)
+- Full callback round trip with a monkey-patched WS
+- Bad/expired passport rejection
+- Replay rejection (single-use passport)
+- Signature mismatch rejection (forged blob)
+- Materials listing/selection round trip
+- Cross-user resource flip prevention
+- Re-sync preserving the user's selection
+
+## Threat model notes
+
+- **Moodle WS tokens** are stored under a base64 envelope today —
+  replace `encrypt_token` / `decrypt_token` in `moodle_service.py`
+  with Fernet (cryptography package) before going to production.
+- **Launch passports** are single-use, server-side, 10-minute TTL,
+  and bound to the StudyPartner user that initiated the launch. The
+  signature on the returned blob is verified against the Moodle
+  siteid to detect forgery.
+- **JWT** is HMAC-SHA256-signed with `STUDYPARTNER_SECRET` — change
+  this from `dev-secret-change-me` in production. JWTs are stateless;
+  there's no server-side revocation table yet.
+- **Material selection writes** are scoped to the current user via
+  `WHERE module_id IN (SELECT id FROM modules WHERE user_id = ?)` —
+  a stolen session can't flip another user's resources.
