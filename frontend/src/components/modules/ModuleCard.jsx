@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FileText, BookOpen, File, GraduationCap, Presentation, MoreVertical, Trash2, ChevronDown, ChevronUp, Calendar, ClipboardCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { FileText, BookOpen, File, GraduationCap, Presentation, MoreVertical, Trash2, ChevronDown, ChevronUp, Calendar, ClipboardCheck, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -72,6 +73,11 @@ export default function ModuleCard({ module, onDelete }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link to={`/modules/${module.id}/units`}>
+                  <Pencil className="w-4 h-4 mr-2" /> Edit parsed units
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDelete(module)} className="text-destructive">
                 <Trash2 className="w-4 h-4 mr-2" /> Delete
               </DropdownMenuItem>

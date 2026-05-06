@@ -99,6 +99,65 @@ Re-syncs preserve the user's selection — `upsert_moodle_resources`
 uses `ON CONFLICT DO UPDATE` and explicitly leaves `included_in_ai`
 and `ingested_at` alone.
 
+## Editing parsed units (and feeding back into the AI)
+
+After a study guide is uploaded or pulled from Moodle, the structural
+parser (`content_analysis_service.detect_learning_units` /
+`detect_subtopics`) produces a tree of Learning Units → Subtopics.
+The student opens **Modules → ⋯ → Edit parsed units** to:
+
+- **Rename** a unit or subtopic the AI got wrong
+- **Add** a missing unit or subtopic
+- **Delete** noise the parser picked up
+- **Edit content** — word count and effort score are recomputed so the
+  planner re-estimates study time on the next plan generation
+
+Every edit is logged to `parsing_feedback` server-side, capturing the
+delta `(before, after)`. The next AI call on the same module folds the
+five most recent corrections into the prompt as a few-shot preamble:
+
+```
+Use the following user corrections from earlier in this module as guidance:
+- Unit was renamed from 'Complexity' to 'Time Complexity'
+- Subtopic was renamed from 'Big-O' to 'Asymptotic Big-O'
+---
+<actual prompt>
+```
+
+The corrections are folded into the artifact cache key so flipping the
+list does **not** silently serve a stale pre-correction artifact.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /modules/{module_id}/learning-units` | add a unit (auto-assigns ordinal) |
+| `PATCH /learning-units/{unit_id}` | rename / reorder a unit |
+| `DELETE /learning-units/{unit_id}` | delete unit + cascade to subtopics |
+| `POST /learning-units/{unit_id}/subtopics` | add a subtopic |
+| `PATCH /subtopics/{subtopic_id}` | rename, edit content, reorder; effort_score auto-recomputed on content edits |
+| `DELETE /subtopics/{subtopic_id}` | delete a single subtopic |
+| `GET /modules/{module_id}/parsing-feedback` | full audit log of structural corrections (used for debugging and as future fine-tuning data) |
+
+Ownership is enforced at the route layer via `get_module_owner` — a
+stolen session can't edit another student's parsed units.
+
+## How units feed the planner
+
+The same `effort_score = word_count/500 + resource_weight` that
+underpins the parsed tree is what the planner converts to minutes
+(`compute_plan_from_subtopics` in `planning_service.py`), so:
+
+- A subtopic the user **edits** (shorter content) takes less time on the
+  next plan.
+- A subtopic the user **deletes** disappears from the plan entirely.
+- A subtopic the user **adds** gets folded in with its full effort.
+
+Assessments drive the **priority** side: `calculate_priority(deadline,
+current_day, remaining_minutes, started)` weights modules with closer
+deadlines higher. Assessment due dates come from Moodle (auto-imported
+by `mod_assign_get_assignments`) or manual entry on the Calendar page.
+Together: pace × pages × word count × complexity × deadline → the
+daily plan you see on the Today screen.
+
 ## Project structure
 
 ```

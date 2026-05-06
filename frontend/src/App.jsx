@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './views/Dashboard';
 import Modules from './views/Modules';
+import UnitsEditor from './views/UnitsEditor';
 import MoodleMaterials from './views/MoodleMaterials';
 import MoodleCallback from './views/MoodleCallback';
 import CalendarView from './views/CalendarView';
@@ -31,6 +32,7 @@ const AuthenticatedApp = () => {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/modules" element={<Modules />} />
+        <Route path="/modules/:moduleId/units" element={<UnitsEditor />} />
         <Route path="/modules/materials" element={<MoodleMaterials />} />
         <Route path="/calendar" element={<CalendarView />} />
         <Route path="/plan" element={<StudyPlan />} />
