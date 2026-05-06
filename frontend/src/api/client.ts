@@ -185,6 +185,17 @@ export const api = {
   deleteLearningUnit: (unitId: string) =>
     request<void>(`/learning-units/${unitId}`, { method: 'DELETE' }),
 
+  getSubtopic: (subtopicId: string) =>
+    request<{
+      id: string;
+      learning_unit_id: string;
+      ordinal: number;
+      title: string;
+      content: string;
+      word_count: number;
+      effort_score: number;
+    }>(`/subtopics/${subtopicId}`),
+
   createSubtopic: (unitId: string, payload: { title: string; content?: string }) =>
     request<{ id: string; learning_unit_id: string; ordinal: number; title: string; word_count: number; effort_score: number }>(
       `/learning-units/${unitId}/subtopics`,

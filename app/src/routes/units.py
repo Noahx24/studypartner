@@ -29,6 +29,8 @@ from app.storage import (
     next_subtopic_ordinal,
     next_unit_ordinal,
     record_parsing_feedback,
+    reorder_learning_unit,
+    reorder_subtopic,
     update_learning_unit,
     update_subtopic,
 )
@@ -131,16 +133,30 @@ def update_learning_unit_endpoint(
     if body.topic is None and body.ordinal is None:
         raise HTTPException(status_code=400, detail="At least one of topic/ordinal required")
 
-    before = {"topic": lu.topic, "ordinal": lu.ordinal}
-    update_learning_unit(unit_id, topic=body.topic, ordinal=body.ordinal)
+    final_ordinal = lu.ordinal
+    # Ordinal goes through `reorder_learning_unit` so the UNIQUE
+    # constraint can't be tripped on a real reorder. Out-of-range
+    # values are clamped to the valid window rather than 4xx'd —
+    # the typical use case (drag-to-end) shouldn't need to know how
+    # many siblings the module has.
+    if body.ordinal is not None:
+        resolved = reorder_learning_unit(unit_id, body.ordinal)
+        if resolved is not None:
+            final_ordinal = resolved
+
+    if body.topic is not None:
+        update_learning_unit(unit_id, topic=body.topic)
+
     after = {
         "topic": body.topic if body.topic is not None else lu.topic,
-        "ordinal": body.ordinal if body.ordinal is not None else lu.ordinal,
+        "ordinal": final_ordinal,
     }
     if body.topic is not None and body.topic != lu.topic:
         record_parsing_feedback(
             current_user.id, lu.module_id, kind="rename_unit",
-            target_id=unit_id, before=before, after=after,
+            target_id=unit_id,
+            before={"topic": lu.topic, "ordinal": lu.ordinal},
+            after=after,
         )
     return {"id": unit_id, **after}
 
@@ -199,6 +215,27 @@ def create_subtopic_endpoint(
     }
 
 
+@router.get("/subtopics/{subtopic_id}")
+def get_subtopic_endpoint(
+    subtopic_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return a single subtopic with full content. The /structure
+    endpoint returns metadata only — it would be too heavy to dump
+    full content for every subtopic across an entire module — so the
+    editor uses this to populate the content textarea on demand."""
+    s, _ = _ensure_subtopic_owned(subtopic_id, current_user)
+    return {
+        "id": s.id,
+        "learning_unit_id": s.learning_unit_id,
+        "ordinal": s.ordinal,
+        "title": s.title,
+        "content": s.content,
+        "word_count": s.word_count,
+        "effort_score": s.effort_score,
+    }
+
+
 @router.patch("/subtopics/{subtopic_id}")
 def update_subtopic_endpoint(
     subtopic_id: str,
@@ -232,8 +269,15 @@ def update_subtopic_endpoint(
         content=body.content,
         word_count=new_word_count if body.content is not None else None,
         effort_score=new_effort if body.content is not None else None,
-        ordinal=body.ordinal,
     )
+
+    final_ordinal = s.ordinal
+    if body.ordinal is not None:
+        # Same UNIQUE-safe reorder as for units. Out-of-range values are
+        # clamped to the valid window inside the helper.
+        resolved = reorder_subtopic(subtopic_id, body.ordinal)
+        if resolved is not None:
+            final_ordinal = resolved
 
     after = {"title": new_title, "content": new_content, "word_count": new_word_count, "effort_score": new_effort}
     if body.title is not None and body.title != s.title:
@@ -255,7 +299,7 @@ def update_subtopic_endpoint(
     return {
         "id": subtopic_id,
         "learning_unit_id": s.learning_unit_id,
-        "ordinal": body.ordinal if body.ordinal is not None else s.ordinal,
+        "ordinal": final_ordinal,
         "title": new_title,
         "word_count": new_word_count,
         "effort_score": new_effort,

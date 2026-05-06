@@ -305,3 +305,129 @@ def test_recent_corrections_is_module_scoped():
     out = list_recent_parsing_corrections("u1", "m-this", limit=10)
     assert len(out) == 1
     assert out[0]["after"]["title"] == "D"
+
+
+# ---- Reorder ----
+
+def _seed_three_units(user_id: str) -> tuple[str, list[str]]:
+    add_module(Module(id="m1", user_id=user_id, name="X", module_type=ModuleType.semester))
+    units = [
+        LearningUnit(id="m1-lu-1", module_id="m1", ordinal=1, topic="A"),
+        LearningUnit(id="m1-lu-2", module_id="m1", ordinal=2, topic="B"),
+        LearningUnit(id="m1-lu-3", module_id="m1", ordinal=3, topic="C"),
+    ]
+    replace_learning_units("m1", units)
+    return "m1", ["m1-lu-1", "m1-lu-2", "m1-lu-3"]
+
+
+def _ordinals(client: TestClient, headers: dict, module_id: str) -> list[tuple[str, int]]:
+    structure = client.get(f"/modules/{module_id}/structure", headers=headers).json()
+    return [(lu["topic"], lu["ordinal"]) for lu in structure["learning_units"]]
+
+
+def test_reorder_unit_moving_down_does_not_500_on_unique_collision():
+    """Without atomic reorder, PATCH {ordinal: 1} on unit B (currently
+    ord=2) collides with `UNIQUE(module_id, ordinal)` on unit A (ord=1)
+    and SQLite raises IntegrityError → FastAPI 500. With the fix, the
+    move succeeds and ordinals are renumbered contiguously."""
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    _, [_, b, _] = _seed_three_units(user_id)
+
+    r = client.patch(f"/learning-units/{b}", headers=headers, json={"ordinal": 1})
+    assert r.status_code == 200, r.text
+    assert r.json()["ordinal"] == 1
+
+    # Final state: B (now 1), A (was 1, bumped to 2), C (still 3)
+    assert _ordinals(client, headers, "m1") == [("B", 1), ("A", 2), ("C", 3)]
+
+
+def test_reorder_unit_moving_up_renumbers_correctly():
+    """Moving the first unit to position 3 should push the others up."""
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    _, [a, _, _] = _seed_three_units(user_id)
+
+    r = client.patch(f"/learning-units/{a}", headers=headers, json={"ordinal": 3})
+    assert r.status_code == 200, r.text
+    assert r.json()["ordinal"] == 3
+    assert _ordinals(client, headers, "m1") == [("B", 1), ("C", 2), ("A", 3)]
+
+
+def test_reorder_unit_clamps_out_of_range():
+    """Drag-to-end (ordinal=99) should clamp to N rather than 4xx."""
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    _, [a, _, _] = _seed_three_units(user_id)
+
+    r = client.patch(f"/learning-units/{a}", headers=headers, json={"ordinal": 99})
+    assert r.status_code == 200
+    assert r.json()["ordinal"] == 3
+
+
+def test_reorder_unit_noop_when_same_position():
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    _, [_, b, _] = _seed_three_units(user_id)
+
+    r = client.patch(f"/learning-units/{b}", headers=headers, json={"ordinal": 2})
+    assert r.status_code == 200
+    assert _ordinals(client, headers, "m1") == [("A", 1), ("B", 2), ("C", 3)]
+
+
+def test_reorder_subtopic_handles_unique_collision():
+    """Same fix applies to subtopics' UNIQUE(learning_unit_id, ordinal)."""
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    add_module(Module(id="m1", user_id=user_id, name="X", module_type=ModuleType.semester))
+    subs = [
+        Subtopic(id="s-1", learning_unit_id="lu-1", ordinal=1, title="One",   content="x", word_count=1),
+        Subtopic(id="s-2", learning_unit_id="lu-1", ordinal=2, title="Two",   content="x", word_count=1),
+        Subtopic(id="s-3", learning_unit_id="lu-1", ordinal=3, title="Three", content="x", word_count=1),
+    ]
+    lu = LearningUnit(id="lu-1", module_id="m1", ordinal=1, topic="X", subtopics=subs)
+    replace_learning_units("m1", [lu])
+
+    r = client.patch("/subtopics/s-3", headers=headers, json={"ordinal": 1})
+    assert r.status_code == 200, r.text
+    assert r.json()["ordinal"] == 1
+    structure = client.get("/modules/m1/structure", headers=headers).json()
+    titles_in_order = [s["title"] for s in structure["learning_units"][0]["subtopics"]]
+    assert titles_in_order == ["Three", "One", "Two"]
+
+
+def test_reorder_does_not_leak_across_modules():
+    """A unit in module A reordered to ordinal 1 must not collide with
+    or shift units in a different module that share ordinals."""
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    add_module(Module(id="m1", user_id=user_id, name="A", module_type=ModuleType.semester))
+    add_module(Module(id="m2", user_id=user_id, name="B", module_type=ModuleType.semester))
+    replace_learning_units("m1", [
+        LearningUnit(id="m1-1", module_id="m1", ordinal=1, topic="m1-A"),
+        LearningUnit(id="m1-2", module_id="m1", ordinal=2, topic="m1-B"),
+    ])
+    replace_learning_units("m2", [
+        LearningUnit(id="m2-1", module_id="m2", ordinal=1, topic="m2-A"),
+        LearningUnit(id="m2-2", module_id="m2", ordinal=2, topic="m2-B"),
+    ])
+
+    r = client.patch("/learning-units/m1-2", headers=headers, json={"ordinal": 1})
+    assert r.status_code == 200
+
+    assert _ordinals(client, headers, "m1") == [("m1-B", 1), ("m1-A", 2)]
+    # m2 unchanged
+    assert _ordinals(client, headers, "m2") == [("m2-A", 1), ("m2-B", 2)]

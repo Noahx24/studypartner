@@ -1246,19 +1246,73 @@ def insert_learning_unit(lu: LearningUnit) -> None:
         )
 
 
-def update_learning_unit(unit_id: str, *, topic: str | None = None, ordinal: int | None = None) -> None:
-    fields, values = [], []
-    if topic is not None:
-        fields.append("topic = ?")
-        values.append(topic)
-    if ordinal is not None:
-        fields.append("ordinal = ?")
-        values.append(ordinal)
-    if not fields:
+def update_learning_unit(unit_id: str, *, topic: str | None = None) -> None:
+    """Plain field update for a unit. **Does not handle ordinal** — the
+    table has `UNIQUE(module_id, ordinal)`, so a naive
+    `UPDATE … SET ordinal = ?` collides on real reorders (moving unit 2
+    to position 1 when unit 1 already occupies it). Callers wanting to
+    reorder must go through `reorder_learning_unit`."""
+    if topic is None:
         return
-    values.append(unit_id)
     with get_connection() as conn:
-        conn.execute(f"UPDATE learning_units SET {', '.join(fields)} WHERE id = ?", values)
+        conn.execute("UPDATE learning_units SET topic = ? WHERE id = ?", (topic, unit_id))
+
+
+def reorder_learning_unit(unit_id: str, new_ordinal: int) -> int | None:
+    """Atomically move a unit to `new_ordinal` within its module,
+    shifting siblings to keep all ordinals contiguous and unique.
+
+    The naive approach (single UPDATE on the moving row) trips
+    `UNIQUE(module_id, ordinal)`. The bulk-shift approach (e.g.
+    `UPDATE … SET ordinal = ordinal + 1 WHERE ordinal BETWEEN …`)
+    also fails: SQLite checks UNIQUE per-row mid-statement, so an
+    intermediate state where two rows hold the same ordinal aborts.
+
+    The trick used here:
+      1. Read all sibling rows for the module, ordered by current ordinal.
+      2. Compute the new order in Python (insert the moving row at
+         the requested 1-based position; clamp out-of-range to the
+         valid window).
+      3. Park every row at its negated ordinal (still unique because
+         input ordinals are unique positives).
+      4. Re-assign final 1..N ordinals via executemany.
+
+    Returns the resolved final ordinal (after clamping) on success, or
+    None if the unit doesn't exist or the move was a no-op.
+    """
+    with get_connection() as conn:
+        moving = conn.execute(
+            "SELECT module_id, ordinal FROM learning_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+        if not moving:
+            return None
+        module_id = moving["module_id"]
+        old_ordinal = int(moving["ordinal"])
+
+        rows = conn.execute(
+            "SELECT id, ordinal FROM learning_units WHERE module_id = ? ORDER BY ordinal",
+            (module_id,),
+        ).fetchall()
+        n = len(rows)
+        target = max(1, min(int(new_ordinal), n))
+        if target == old_ordinal:
+            return old_ordinal
+
+        rest = [r["id"] for r in rows if r["id"] != unit_id]
+        rest.insert(target - 1, unit_id)
+        new_assignments = [(idx + 1, rid) for idx, rid in enumerate(rest)]
+
+        # Park every row at -ordinal so no UNIQUE conflicts mid-update.
+        conn.execute(
+            "UPDATE learning_units SET ordinal = -ordinal WHERE module_id = ?",
+            (module_id,),
+        )
+        conn.executemany(
+            "UPDATE learning_units SET ordinal = ? WHERE id = ?",
+            new_assignments,
+        )
+        return target
 
 
 def delete_learning_unit(unit_id: str) -> None:
@@ -1287,11 +1341,12 @@ def update_subtopic(
     content: str | None = None,
     word_count: int | None = None,
     effort_score: float | None = None,
-    ordinal: int | None = None,
 ) -> None:
-    """Caller is responsible for recomputing `word_count` and
-    `effort_score` when content changes — keeps storage dumb and the
-    derivation single-sourced in `content_analysis_service.estimate_effort`."""
+    """Field-level update. **Does not handle ordinal** — see
+    `reorder_subtopic`. Caller is responsible for recomputing
+    `word_count` and `effort_score` when content changes; keeps storage
+    dumb and the derivation single-sourced in
+    `content_analysis_service.estimate_effort`."""
     fields, values = [], []
     if title is not None:
         fields.append("title = ?")
@@ -1305,14 +1360,49 @@ def update_subtopic(
     if effort_score is not None:
         fields.append("effort_score = ?")
         values.append(effort_score)
-    if ordinal is not None:
-        fields.append("ordinal = ?")
-        values.append(ordinal)
     if not fields:
         return
     values.append(subtopic_id)
     with get_connection() as conn:
         conn.execute(f"UPDATE subtopics SET {', '.join(fields)} WHERE id = ?", values)
+
+
+def reorder_subtopic(subtopic_id: str, new_ordinal: int) -> int | None:
+    """Atomically move a subtopic to `new_ordinal` within its parent
+    learning unit. Same park-then-renumber trick as
+    `reorder_learning_unit` — see that function for the rationale."""
+    with get_connection() as conn:
+        moving = conn.execute(
+            "SELECT learning_unit_id, ordinal FROM subtopics WHERE id = ?",
+            (subtopic_id,),
+        ).fetchone()
+        if not moving:
+            return None
+        lu_id = moving["learning_unit_id"]
+        old_ordinal = int(moving["ordinal"])
+
+        rows = conn.execute(
+            "SELECT id, ordinal FROM subtopics WHERE learning_unit_id = ? ORDER BY ordinal",
+            (lu_id,),
+        ).fetchall()
+        n = len(rows)
+        target = max(1, min(int(new_ordinal), n))
+        if target == old_ordinal:
+            return old_ordinal
+
+        rest = [r["id"] for r in rows if r["id"] != subtopic_id]
+        rest.insert(target - 1, subtopic_id)
+        new_assignments = [(idx + 1, sid) for idx, sid in enumerate(rest)]
+
+        conn.execute(
+            "UPDATE subtopics SET ordinal = -ordinal WHERE learning_unit_id = ?",
+            (lu_id,),
+        )
+        conn.executemany(
+            "UPDATE subtopics SET ordinal = ? WHERE id = ?",
+            new_assignments,
+        )
+        return target
 
 
 def delete_subtopic(subtopic_id: str) -> None:

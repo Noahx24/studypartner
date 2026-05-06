@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,9 +12,19 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { api } from '@/api/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -45,6 +55,14 @@ export default function UnitsEditor() {
   const [newSubtopicTitle, setNewSubtopicTitle] = useState('');
   const [newUnitOpen, setNewUnitOpen] = useState(false);
   const [newUnitTopic, setNewUnitTopic] = useState('');
+
+  // Subtopic content editor — opened from the FileText icon on each
+  // subtopic. We lazy-fetch the full content on open (it isn't part of
+  // the structure response). Saving triggers PATCH { content }, which
+  // recomputes word_count + effort_score server-side; the planner
+  // then re-estimates time on the next plan generation.
+  const [contentDialogSubtopic, setContentDialogSubtopic] = useState(null);
+  const [draftContent, setDraftContent] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['module-structure', moduleId],
@@ -106,6 +124,33 @@ export default function UnitsEditor() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  const editContent = useMutation({
+    mutationFn: ({ subtopicId, content }) =>
+      api.updateSubtopic(subtopicId, { content }),
+    onSuccess: (res) => {
+      toast.success(`Saved — recomputed to ${res.word_count} words`);
+      setContentDialogSubtopic(null);
+      setDraftContent('');
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Lazy-load the full content the first time a content dialog opens.
+  // We deliberately avoid bundling content into the structure response
+  // — a textbook's worth of content would balloon that endpoint.
+  useEffect(() => {
+    if (!contentDialogSubtopic?.id) return;
+    let cancelled = false;
+    setDraftContent('');
+    api.getSubtopic(contentDialogSubtopic.id).then((sub) => {
+      if (!cancelled) setDraftContent(sub.content || '');
+    }).catch((err) => toast.error(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [contentDialogSubtopic?.id]);
 
   const removeSubtopic = useMutation({
     mutationFn: (subtopicId) => api.deleteSubtopic(subtopicId),
@@ -336,6 +381,16 @@ export default function UnitsEditor() {
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 shrink-0"
+                            onClick={() => setContentDialogSubtopic(sub)}
+                            aria-label="Edit content"
+                            title="Edit content (recomputes word count + planner time estimate)"
+                          >
+                            <FileText className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 shrink-0"
                             onClick={() => startEditSubtopic(sub)}
                             aria-label="Rename subtopic"
                           >
@@ -462,6 +517,70 @@ export default function UnitsEditor() {
           </Button>
         )
       )}
+
+      <Dialog
+        open={contentDialogSubtopic !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setContentDialogSubtopic(null);
+            setDraftContent('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Edit content — {contentDialogSubtopic?.title ?? ''}
+            </DialogTitle>
+            <DialogDescription>
+              Save to recompute the word count and effort score. The
+              planner picks up the new time estimate on the next plan
+              generation.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={draftContent}
+            onChange={(e) => setDraftContent(e.target.value)}
+            className="min-h-[260px] font-mono text-xs"
+            placeholder="Subtopic content…"
+          />
+          <div className="flex justify-between text-[11px] text-muted-foreground -mt-1">
+            <span>
+              Was {contentDialogSubtopic?.word_count ?? 0} words.
+            </span>
+            <span>
+              Now {draftContent.match(/\w+/g)?.length ?? 0} words (live)
+            </span>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setContentDialogSubtopic(null);
+                setDraftContent('');
+              }}
+              disabled={editContent.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                contentDialogSubtopic &&
+                editContent.mutate({
+                  subtopicId: contentDialogSubtopic.id,
+                  content: draftContent,
+                })
+              }
+              disabled={editContent.isPending || !contentDialogSubtopic}
+            >
+              {editContent.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : null}
+              Save content
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
