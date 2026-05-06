@@ -739,12 +739,33 @@ def get_latest_selection(user_id: str, module_id: str) -> UserSelection | None:
 
 # ---- AI artifacts ----
 
-def get_ai_artifact(scope: str, ref_id: str, content_hash: str, prompt_hash: str) -> AIArtifact | None:
+def get_ai_artifact(
+    scope: str,
+    ref_id: str,
+    content_hash: str,
+    prompt_hash: str,
+    model: str | None = None,
+) -> AIArtifact | None:
+    """Look up a cached artifact.
+
+    `model` is optional but should be passed by anything calling out to a
+    specific backend. Without it, a stub artifact saved during a fallback
+    would be served indefinitely even after the real backend recovers,
+    because the stored model doesn't match what's currently configured.
+    With it, a model mismatch behaves like a cache miss → the caller
+    re-runs against the active backend, and `INSERT OR REPLACE` on save
+    overwrites the stale row.
+    """
+    sql = (
+        "SELECT * FROM ai_artifacts "
+        "WHERE scope = ? AND ref_id = ? AND content_hash = ? AND prompt_hash = ?"
+    )
+    params: list = [scope, ref_id, content_hash, prompt_hash]
+    if model is not None:
+        sql += " AND model = ?"
+        params.append(model)
     with get_connection() as conn:
-        r = conn.execute(
-            "SELECT * FROM ai_artifacts WHERE scope = ? AND ref_id = ? AND content_hash = ? AND prompt_hash = ?",
-            (scope, ref_id, content_hash, prompt_hash),
-        ).fetchone()
+        r = conn.execute(sql, params).fetchone()
     if not r:
         return None
     return AIArtifact(
