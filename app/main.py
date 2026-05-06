@@ -1,6 +1,18 @@
 from contextlib import asynccontextmanager
 import logging
 import os
+from app.config import settings
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {
+        "backend": settings.llm_backend,
+        "model": settings.ollama_model,
+        "moodle": settings.moodle_base_url,
+    }
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
