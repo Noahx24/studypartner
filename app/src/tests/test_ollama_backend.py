@@ -269,3 +269,85 @@ def test_ollama_caching_skips_second_call(monkeypatch):
     second = service.generate_summary(sub, selection)
     assert first == second
     assert call_count["n"] == 1, "second call should hit the artifact cache"
+
+
+def test_stub_fallback_does_not_block_ollama_recovery(monkeypatch):
+    """Regression: when Ollama is down on the first call we cache a stub
+    artifact. Without the model-aware lookup, the second call (with
+    Ollama recovered) would still see a cache hit on the stub row and
+    never retry the real backend — defeating the entire fallback design.
+
+    With the fix, the second call's lookup filters by the Ollama model,
+    misses the stub-tagged row, calls Ollama, and INSERT OR REPLACE
+    overwrites the stub artifact with the real one.
+    """
+    _fresh_db()
+    monkeypatch.setenv("STUDYPARTNER_LLM_BACKEND", "ollama")
+
+    sub = Subtopic(
+        id="s-1",
+        learning_unit_id="lu-1",
+        ordinal=1,
+        title="Mitochondria",
+        content="The mitochondrion is the powerhouse of the cell.",
+        word_count=10,
+    )
+    selection = UserSelection(
+        id="sel-1",
+        user_id="u",
+        module_id="m",
+        subtopic_ids=["s-1"],
+        ai_features=AIFeatureSet(),
+        updated_at=utcnow_aware(),
+    )
+
+    # ---- Phase 1: Ollama down → stub fallback caches a stub artifact.
+    def urlopen_down(req, timeout):
+        raise urllib.error.URLError("daemon offline")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen_down)
+    service = AIService()  # picks up env, builds Ollama caller
+    payload_down = service.generate_summary(sub, selection)
+    # The stub returns key_concepts/bullets/simple_explanation
+    assert "bullets" in payload_down
+
+    # Confirm an artifact was stored, and it's tagged with the stub model
+    # rather than the Ollama model. We don't filter by model here so we
+    # observe whatever row was actually saved.
+    from app.storage import get_ai_artifact
+    from app.src.models.services.ai_service import PROMPT_SUMMARY
+    import hashlib
+    content_hash = hashlib.sha256(sub.content.encode("utf-8")).hexdigest()
+    prompt_hash = hashlib.sha256(
+        (PROMPT_SUMMARY + "|low_data=0").encode("utf-8")
+    ).hexdigest()
+    stub_hit = get_ai_artifact("summary", "s-1", content_hash, prompt_hash)
+    assert stub_hit is not None
+    assert stub_hit.model == "stub-llm-v1"
+
+    # ---- Phase 2: Ollama recovers → next call MUST retry it.
+    ollama_calls = {"n": 0}
+
+    def urlopen_up(req, timeout):
+        ollama_calls["n"] += 1
+        return _FakeResponse(
+            json.dumps(
+                {"response": json.dumps({
+                    "key_concepts": ["ATP"],
+                    "bullets": ["Real Ollama answer"],
+                    "simple_explanation": "Now powered by the real model.",
+                })}
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen_up)
+    payload_up = service.generate_summary(sub, selection)
+
+    assert ollama_calls["n"] == 1, "Ollama must be retried after recovery"
+    assert payload_up["bullets"] == ["Real Ollama answer"]
+    assert payload_up != payload_down, "stub payload must not be served once Ollama is back"
+
+    # ---- Phase 3: One more call should hit the cache (Ollama row now wins).
+    payload_again = service.generate_summary(sub, selection)
+    assert ollama_calls["n"] == 1, "post-recovery call should hit cache, not call Ollama again"
+    assert payload_again == payload_up

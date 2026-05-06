@@ -327,17 +327,26 @@ class AIService:
         content_hash = _sha(body)
         prompt_hash = _sha(prompt_template + f"|low_data={int(low_data)}")
 
-        hit = get_ai_artifact(scope, ref_id, content_hash, prompt_hash)
+        # Filter the cache lookup by the *currently configured* model.
+        # Without this, a stub artifact stored during an Ollama fallback
+        # would be served forever — Ollama would never get retried after
+        # it recovered, because the cache hit short-circuits the call.
+        # With it, a model mismatch (cached stub vs active Ollama) reads
+        # as a miss; we re-call the active backend and INSERT OR REPLACE
+        # on save overwrites the stale row.
+        active_model = self.model or "unknown"
+        hit = get_ai_artifact(scope, ref_id, content_hash, prompt_hash, model=active_model)
         if hit:
             return hit.payload
 
         max_tokens = 350 if low_data else 1200
         # If the active backend (e.g. Ollama) is unreachable, log once and
         # fall through to the deterministic stub so the user still gets
-        # something useful instead of a 500. Cached artifacts are tagged
-        # with the model that actually produced them, so a stub-fallback
-        # response gets recomputed once Ollama is back.
-        model_used = self.model or "unknown"
+        # something useful instead of a 500. The artifact is tagged with
+        # the stub's model — so the next request (with Ollama back up)
+        # filters by the Ollama model, misses, and re-tries the real
+        # backend. That's the recovery path.
+        model_used = active_model
         try:
             raw = self.llm(prompt, max_tokens)  # type: ignore[misc]
         except OllamaUnavailable as exc:
