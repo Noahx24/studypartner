@@ -8,6 +8,11 @@
 - If no LLM backend is configured, returns deterministic template artifacts
   built from the source content — keeps the system fully functional offline
   for demos / tests without external dependencies.
+
+Backends are picked via STUDYPARTNER_LLM_BACKEND:
+  - unset / "stub"  → deterministic templates
+  - "ollama"        → local Ollama daemon (default for `make dev`)
+  - "anthropic"     → placeholder (not wired yet)
 """
 from __future__ import annotations
 
@@ -16,12 +21,19 @@ from datetime import datetime
 
 from app.src.utils.time import utcnow_aware
 import hashlib
+import json as _json
+import logging
 import os
 import re
 from typing import Callable
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from app.src.models import AIArtifact, LearningUnit, Subtopic, UserSelection
 from app.storage import get_ai_artifact, save_ai_artifact, delete_ai_artifacts_for
+
+logger = logging.getLogger(__name__)
 
 
 # ---- Prompt templates (hash-stable) ----
@@ -134,13 +146,99 @@ def _top_keywords(text: str, n: int) -> list[str]:
     return [w for w, _ in sorted(freq.items(), key=lambda x: -x[1])[:n]]
 
 
+class OllamaUnavailable(Exception):
+    """Raised when Ollama is configured but unreachable / errored. Callers
+    decide whether to fall back to the stub or surface the error."""
+
+
+class _OllamaLLM:
+    """Talks to a locally-running Ollama daemon for development / testing.
+
+    Ollama exposes an HTTP API on 127.0.0.1:11434 by default. We use
+    `/api/generate` with `stream: false` and `format: "json"` — the format
+    flag tells Ollama to emit valid JSON, which sidesteps the messy
+    "model wraps JSON in prose" problem with smaller local models.
+
+    Configuration:
+      OLLAMA_BASE_URL   default http://localhost:11434
+      OLLAMA_MODEL      default llama3.2 (3B parameters — fits on a laptop)
+      OLLAMA_TIMEOUT    default 60 seconds (cold load can be slow)
+
+    Calls cost nothing and produce no log lines on success — but on
+    failure they raise OllamaUnavailable so the caller can decide
+    whether to retry, fall back, or propagate.
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        self.base_url = (base_url or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip("/")
+        self.model = model or os.environ.get("OLLAMA_MODEL") or "llama3.2"
+        self.timeout_seconds = timeout_seconds or float(os.environ.get("OLLAMA_TIMEOUT") or 60.0)
+
+    def __call__(self, prompt: str, max_tokens: int) -> str:
+        """Return raw model output. Always JSON-shaped because we set
+        `format: "json"`, but we don't validate here — `_safe_parse_json`
+        downstream is the single source of truth for parse-or-fallback."""
+        body = _json.dumps({
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {
+                # num_predict caps generated tokens; matches our existing
+                # max_tokens budget per call.
+                "num_predict": max_tokens,
+                "temperature": 0.2,
+            },
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/generate",
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                raw = resp.read().decode("utf-8")
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise OllamaUnavailable(f"Ollama request failed: {exc}") from exc
+        try:
+            payload = _json.loads(raw)
+        except _json.JSONDecodeError as exc:
+            raise OllamaUnavailable("Ollama returned non-JSON envelope") from exc
+        if "error" in payload:
+            raise OllamaUnavailable(f"Ollama error: {payload['error']}")
+        # Ollama puts the model output in `response`. Already JSON-shaped
+        # because we set format=json — return it as-is for _safe_parse_json.
+        return payload.get("response", "")
+
+
 def _build_llm() -> tuple[LLMCall, str]:
-    """Return (caller, model). Replace with OpenAI/Anthropic/etc in production."""
-    if os.environ.get("STUDYPARTNER_LLM_BACKEND") == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
+    """Return (caller, model_name).
+
+    Selector via STUDYPARTNER_LLM_BACKEND:
+      - "ollama"     → _OllamaLLM (local). On startup-time misconfig or
+                       network failure we fall back to the stub so the
+                       app still runs; per-request failures bubble up
+                       through OllamaUnavailable for the caller to handle.
+      - "anthropic"  → not wired yet; placeholder still defers to stub.
+      - anything else → deterministic stub.
+    """
+    backend = os.environ.get("STUDYPARTNER_LLM_BACKEND", "").lower()
+
+    if backend == "ollama":
+        client = _OllamaLLM()
+        return client, f"ollama:{client.model}"
+
+    if backend == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
         # Placeholder for real backend. Wire anthropic.messages.create here.
-        # For now still defer to the stub — keeps the code path off in tests.
         stub = _StubLLM()
         return stub, "anthropic-wired-but-stubbed"
+
     stub = _StubLLM()
     return stub, stub.model
 
@@ -234,17 +332,29 @@ class AIService:
             return hit.payload
 
         max_tokens = 350 if low_data else 1200
-        raw = self.llm(prompt, max_tokens)  # type: ignore[misc]
+        # If the active backend (e.g. Ollama) is unreachable, log once and
+        # fall through to the deterministic stub so the user still gets
+        # something useful instead of a 500. Cached artifacts are tagged
+        # with the model that actually produced them, so a stub-fallback
+        # response gets recomputed once Ollama is back.
+        model_used = self.model or "unknown"
+        try:
+            raw = self.llm(prompt, max_tokens)  # type: ignore[misc]
+        except OllamaUnavailable as exc:
+            logger.warning("Falling back to stub LLM: %s", exc)
+            stub = _StubLLM()
+            raw = stub(prompt, max_tokens)
+            model_used = stub.model
 
         payload = _safe_parse_json(raw)
         artifact = AIArtifact(
-            id=_artifact_id(scope, ref_id, content_hash, prompt_hash, self.model or "unknown"),
+            id=_artifact_id(scope, ref_id, content_hash, prompt_hash, model_used),
             scope=scope,  # type: ignore[arg-type]
             ref_id=ref_id,
             content_hash=content_hash,
             prompt_hash=prompt_hash,
             payload=payload,
-            model=self.model or "unknown",
+            model=model_used,
             created_at=utcnow_aware(),
         )
         save_ai_artifact(artifact)

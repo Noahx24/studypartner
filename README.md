@@ -216,6 +216,50 @@ moves.
 - `POST /pack/generate` · `GET /pack/{id}` · `GET /pack/{id}/download`
 - `POST /sync` — manual-first delta sync
 
+## AI backend
+
+`AIService` produces summaries, subtopic quizzes, and topic quizzes.
+Outputs are cached by `(scope, ref_id, content_hash, prompt_hash)` so
+the same prompt never invokes the LLM twice.
+
+Selector via `STUDYPARTNER_LLM_BACKEND`:
+
+| Value | Behaviour |
+|---|---|
+| unset / `stub` | deterministic templates derived from the source content — no network calls. Default; keeps tests + demos hermetic. |
+| `ollama` | local Ollama daemon (default `http://localhost:11434`). For local development against a real LLM. |
+| `anthropic` | placeholder; not wired yet. Currently still defers to the stub. |
+
+### Running against Ollama (local)
+
+Install and start Ollama, then pull a small model:
+
+```bash
+# Linux / macOS
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+ollama pull llama3.2          # ~2 GB — fits on a laptop, fast enough for testing
+```
+
+Tell StudyPartner to use it:
+
+```bash
+export STUDYPARTNER_LLM_BACKEND=ollama
+export OLLAMA_MODEL=llama3.2          # default; override for any pulled model
+export OLLAMA_BASE_URL=http://localhost:11434
+export OLLAMA_TIMEOUT=60               # seconds — first call is slow as the model loads
+uvicorn app.main:app --reload
+```
+
+The integration uses Ollama's `/api/generate` with `format: "json"` so
+even small local models reliably return JSON we can parse.
+
+If Ollama is unreachable mid-request, `AIService` logs a warning and
+falls back to the deterministic stub for that single call — the user
+still gets a usable response. Cached artifacts are tagged with the
+model that produced them, so a stub-fallback response will be
+re-generated against Ollama on the next call once it's back.
+
 ## Time feedback + personalization
 
 - Each completed session collects an estimated-vs-actual ratio.
