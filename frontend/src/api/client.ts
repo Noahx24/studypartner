@@ -75,6 +75,12 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
       const text = await response.text().catch(() => '');
       throw new Error(text || `Request failed (${response.status})`);
     }
+    // 204 No Content (and any zero-length 2xx response) has no body to
+    // parse — caller gets undefined, which the `<T = void>` use sites
+    // expect.
+    if (response.status === 204) {
+      return undefined as T;
+    }
     return (await response.json()) as T;
   } catch (err) {
     throw friendlyError(err, path);
@@ -162,6 +168,61 @@ export const api = {
   getModuleContent: (moduleId: string) => request<ModuleContentResponse>(`/modules/${moduleId}/content`),
   getStudyUnits: (moduleId: string) => request<StudyUnitsResponse>(`/modules/${moduleId}/study-units`),
   getModuleStructure: (moduleId: string) => request<ModuleStructure>(`/modules/${moduleId}/structure`),
+
+  // ---- Unit editor (CRUD on parsed Learning Units + Subtopics) ----
+  // Every mutation logs a parsing_feedback row server-side; future AI
+  // runs on the same module fold the user's corrections into the prompt.
+  createLearningUnit: (moduleId: string, payload: { topic: string }) =>
+    request<{ id: string; ordinal: number; topic: string }>(
+      `/modules/${moduleId}/learning-units`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  updateLearningUnit: (unitId: string, payload: { topic?: string; ordinal?: number }) =>
+    request<{ id: string; ordinal: number; topic: string }>(
+      `/learning-units/${unitId}`,
+      { method: 'PATCH', body: JSON.stringify(payload) },
+    ),
+  deleteLearningUnit: (unitId: string) =>
+    request<void>(`/learning-units/${unitId}`, { method: 'DELETE' }),
+
+  getSubtopic: (subtopicId: string) =>
+    request<{
+      id: string;
+      learning_unit_id: string;
+      ordinal: number;
+      title: string;
+      content: string;
+      word_count: number;
+      effort_score: number;
+    }>(`/subtopics/${subtopicId}`),
+
+  createSubtopic: (unitId: string, payload: { title: string; content?: string }) =>
+    request<{ id: string; learning_unit_id: string; ordinal: number; title: string; word_count: number; effort_score: number }>(
+      `/learning-units/${unitId}/subtopics`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  updateSubtopic: (
+    subtopicId: string,
+    payload: { title?: string; content?: string; ordinal?: number },
+  ) =>
+    request<{ id: string; learning_unit_id: string; ordinal: number; title: string; word_count: number; effort_score: number }>(
+      `/subtopics/${subtopicId}`,
+      { method: 'PATCH', body: JSON.stringify(payload) },
+    ),
+  deleteSubtopic: (subtopicId: string) =>
+    request<void>(`/subtopics/${subtopicId}`, { method: 'DELETE' }),
+
+  listParsingFeedback: (moduleId: string) =>
+    request<{
+      feedback: Array<{
+        id: number;
+        kind: string;
+        target_id: string | null;
+        before: unknown;
+        after: unknown;
+        created_at: string;
+      }>;
+    }>(`/modules/${moduleId}/parsing-feedback`),
 
   generatePlan: (userId: string) =>
     request<WeeklyPlanResponse>('/plans/generate', {

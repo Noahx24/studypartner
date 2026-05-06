@@ -237,6 +237,21 @@ def init_db() -> None:
                 applied_at TEXT NOT NULL
             );
 
+            -- Captured every time a user edits an AI-parsed unit/subtopic.
+            -- The (before, after) deltas are the labels future AI runs can
+            -- use as few-shot examples or fine-tuning data to do better
+            -- structural parsing for this user's content.
+            CREATE TABLE IF NOT EXISTS parsing_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                module_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                target_id TEXT,
+                before_payload TEXT,
+                after_payload TEXT,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS moodle_launch_passports (
                 passport TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -245,6 +260,7 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL
             );
 
+            CREATE INDEX IF NOT EXISTS idx_parsing_feedback_module ON parsing_feedback(user_id, module_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_subtopics_lu       ON subtopics(learning_unit_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_lu_module          ON learning_units(module_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_artifacts_ref      ON ai_artifacts(scope, ref_id);
@@ -1178,6 +1194,340 @@ def sync_changes_since(user_id: str, since_iso: str | None) -> list[dict]:
             "op": r["op"],
             "payload": json.loads(r["payload"]),
             "applied_at": r["applied_at"],
+        }
+        for r in rows
+    ]
+
+
+# ---- LearningUnit / Subtopic granular CRUD ----
+#
+# `replace_learning_units` is fine for the initial parse, but once the
+# user starts editing we need per-row writes that don't blow away the
+# rest of the tree. All of these are scoped to a single id; ownership
+# is enforced at the route layer (look up the module's user_id and
+# refuse if it isn't current_user).
+
+def get_learning_unit(unit_id: str) -> LearningUnit | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM learning_units WHERE id = ?", (unit_id,)).fetchone()
+    if not row:
+        return None
+    return LearningUnit(
+        id=row["id"],
+        module_id=row["module_id"],
+        ordinal=row["ordinal"],
+        topic=row["topic"],
+        subtopics=[],
+        source_span=json.loads(row["source_span"]) if row["source_span"] else None,
+    )
+
+
+def get_subtopic(subtopic_id: str) -> Subtopic | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM subtopics WHERE id = ?", (subtopic_id,)).fetchone()
+    if not row:
+        return None
+    return Subtopic(
+        id=row["id"],
+        learning_unit_id=row["learning_unit_id"],
+        ordinal=row["ordinal"],
+        title=row["title"],
+        content=row["content"],
+        word_count=row["word_count"],
+        resource_weight=row["resource_weight"],
+        effort_score=row["effort_score"],
+    )
+
+
+def get_module_owner(module_id: str) -> str | None:
+    """Single source of truth for "who owns this module" — used by every
+    granular CRUD route to authorize the caller."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT user_id FROM modules WHERE id = ?", (module_id,)).fetchone()
+    return row["user_id"] if row else None
+
+
+def insert_learning_unit(lu: LearningUnit) -> None:
+    """Append a new unit. Ordinal collisions are *not* prevented at the
+    DB level — the route layer auto-assigns `max(ordinal)+1`."""
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO learning_units (id, module_id, ordinal, topic, source_span, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                lu.id,
+                lu.module_id,
+                lu.ordinal,
+                lu.topic,
+                json.dumps(lu.source_span) if lu.source_span else None,
+                utcnow_iso(),
+            ),
+        )
+
+
+def update_learning_unit(unit_id: str, *, topic: str | None = None) -> None:
+    """Plain field update for a unit. **Does not handle ordinal** — the
+    table has `UNIQUE(module_id, ordinal)`, so a naive
+    `UPDATE … SET ordinal = ?` collides on real reorders (moving unit 2
+    to position 1 when unit 1 already occupies it). Callers wanting to
+    reorder must go through `reorder_learning_unit`."""
+    if topic is None:
+        return
+    with get_connection() as conn:
+        conn.execute("UPDATE learning_units SET topic = ? WHERE id = ?", (topic, unit_id))
+
+
+def reorder_learning_unit(unit_id: str, new_ordinal: int) -> int | None:
+    """Atomically move a unit to `new_ordinal` within its module,
+    shifting siblings to keep all ordinals contiguous and unique.
+
+    The naive approach (single UPDATE on the moving row) trips
+    `UNIQUE(module_id, ordinal)`. The bulk-shift approach (e.g.
+    `UPDATE … SET ordinal = ordinal + 1 WHERE ordinal BETWEEN …`)
+    also fails: SQLite checks UNIQUE per-row mid-statement, so an
+    intermediate state where two rows hold the same ordinal aborts.
+
+    The trick used here:
+      1. Read all sibling rows for the module, ordered by current ordinal.
+      2. Compute the new order in Python (insert the moving row at
+         the requested 1-based position; clamp out-of-range to the
+         valid window).
+      3. Park every row at its negated ordinal (still unique because
+         input ordinals are unique positives).
+      4. Re-assign final 1..N ordinals via executemany.
+
+    Returns the resolved final ordinal (after clamping) on success, or
+    None if the unit doesn't exist or the move was a no-op.
+    """
+    with get_connection() as conn:
+        moving = conn.execute(
+            "SELECT module_id, ordinal FROM learning_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+        if not moving:
+            return None
+        module_id = moving["module_id"]
+        old_ordinal = int(moving["ordinal"])
+
+        rows = conn.execute(
+            "SELECT id, ordinal FROM learning_units WHERE module_id = ? ORDER BY ordinal",
+            (module_id,),
+        ).fetchall()
+        n = len(rows)
+        target = max(1, min(int(new_ordinal), n))
+        if target == old_ordinal:
+            return old_ordinal
+
+        rest = [r["id"] for r in rows if r["id"] != unit_id]
+        rest.insert(target - 1, unit_id)
+        new_assignments = [(idx + 1, rid) for idx, rid in enumerate(rest)]
+
+        # Park every row at -ordinal so no UNIQUE conflicts mid-update.
+        conn.execute(
+            "UPDATE learning_units SET ordinal = -ordinal WHERE module_id = ?",
+            (module_id,),
+        )
+        conn.executemany(
+            "UPDATE learning_units SET ordinal = ? WHERE id = ?",
+            new_assignments,
+        )
+        return target
+
+
+def delete_learning_unit(unit_id: str) -> None:
+    """Cascades to subtopics — the schema has no FK constraint so we do
+    the cascade explicitly in one transaction."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM subtopics WHERE learning_unit_id = ?", (unit_id,))
+        conn.execute("DELETE FROM learning_units WHERE id = ?", (unit_id,))
+
+
+def insert_subtopic(s: Subtopic) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO subtopics (id, learning_unit_id, ordinal, title, content, word_count, resource_weight, effort_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (s.id, s.learning_unit_id, s.ordinal, s.title, s.content, s.word_count, s.resource_weight, s.effort_score),
+        )
+
+
+def update_subtopic(
+    subtopic_id: str,
+    *,
+    title: str | None = None,
+    content: str | None = None,
+    word_count: int | None = None,
+    effort_score: float | None = None,
+) -> None:
+    """Field-level update. **Does not handle ordinal** — see
+    `reorder_subtopic`. Caller is responsible for recomputing
+    `word_count` and `effort_score` when content changes; keeps storage
+    dumb and the derivation single-sourced in
+    `content_analysis_service.estimate_effort`."""
+    fields, values = [], []
+    if title is not None:
+        fields.append("title = ?")
+        values.append(title)
+    if content is not None:
+        fields.append("content = ?")
+        values.append(content)
+    if word_count is not None:
+        fields.append("word_count = ?")
+        values.append(word_count)
+    if effort_score is not None:
+        fields.append("effort_score = ?")
+        values.append(effort_score)
+    if not fields:
+        return
+    values.append(subtopic_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE subtopics SET {', '.join(fields)} WHERE id = ?", values)
+
+
+def reorder_subtopic(subtopic_id: str, new_ordinal: int) -> int | None:
+    """Atomically move a subtopic to `new_ordinal` within its parent
+    learning unit. Same park-then-renumber trick as
+    `reorder_learning_unit` — see that function for the rationale."""
+    with get_connection() as conn:
+        moving = conn.execute(
+            "SELECT learning_unit_id, ordinal FROM subtopics WHERE id = ?",
+            (subtopic_id,),
+        ).fetchone()
+        if not moving:
+            return None
+        lu_id = moving["learning_unit_id"]
+        old_ordinal = int(moving["ordinal"])
+
+        rows = conn.execute(
+            "SELECT id, ordinal FROM subtopics WHERE learning_unit_id = ? ORDER BY ordinal",
+            (lu_id,),
+        ).fetchall()
+        n = len(rows)
+        target = max(1, min(int(new_ordinal), n))
+        if target == old_ordinal:
+            return old_ordinal
+
+        rest = [r["id"] for r in rows if r["id"] != subtopic_id]
+        rest.insert(target - 1, subtopic_id)
+        new_assignments = [(idx + 1, sid) for idx, sid in enumerate(rest)]
+
+        conn.execute(
+            "UPDATE subtopics SET ordinal = -ordinal WHERE learning_unit_id = ?",
+            (lu_id,),
+        )
+        conn.executemany(
+            "UPDATE subtopics SET ordinal = ? WHERE id = ?",
+            new_assignments,
+        )
+        return target
+
+
+def delete_subtopic(subtopic_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM subtopics WHERE id = ?", (subtopic_id,))
+
+
+def next_unit_ordinal(module_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(ordinal), 0) + 1 AS next FROM learning_units WHERE module_id = ?",
+            (module_id,),
+        ).fetchone()
+    return int(row["next"])
+
+
+def next_subtopic_ordinal(learning_unit_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(ordinal), 0) + 1 AS next FROM subtopics WHERE learning_unit_id = ?",
+            (learning_unit_id,),
+        ).fetchone()
+    return int(row["next"])
+
+
+# ---- Parsing feedback ----
+
+def record_parsing_feedback(
+    user_id: str,
+    module_id: str,
+    kind: str,
+    target_id: str | None,
+    before: dict | None,
+    after: dict | None,
+) -> int:
+    """Log one structural correction. Returns the row id."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO parsing_feedback
+                (user_id, module_id, kind, target_id, before_payload, after_payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                module_id,
+                kind,
+                target_id,
+                json.dumps(before) if before is not None else None,
+                json.dumps(after) if after is not None else None,
+                utcnow_iso(),
+            ),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_parsing_feedback_for_module(module_id: str, limit: int = 50) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, module_id, kind, target_id, before_payload, after_payload, created_at
+              FROM parsing_feedback
+             WHERE module_id = ?
+             ORDER BY created_at DESC
+             LIMIT ?
+            """,
+            (module_id, limit),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "user_id": r["user_id"],
+            "module_id": r["module_id"],
+            "kind": r["kind"],
+            "target_id": r["target_id"],
+            "before": json.loads(r["before_payload"]) if r["before_payload"] else None,
+            "after": json.loads(r["after_payload"]) if r["after_payload"] else None,
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def list_recent_parsing_corrections(user_id: str, module_id: str, limit: int = 5) -> list[dict]:
+    """Used by the AI prompt builder to ground future runs in the user's
+    most recent corrections — the simplest "feedback improves accuracy"
+    loop we can ship without fine-tuning."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT kind, before_payload, after_payload
+              FROM parsing_feedback
+             WHERE user_id = ? AND module_id = ?
+               AND kind IN ('rename_unit', 'rename_subtopic', 'edit_subtopic_content')
+             ORDER BY created_at DESC
+             LIMIT ?
+            """,
+            (user_id, module_id, limit),
+        ).fetchall()
+    return [
+        {
+            "kind": r["kind"],
+            "before": json.loads(r["before_payload"]) if r["before_payload"] else None,
+            "after": json.loads(r["after_payload"]) if r["after_payload"] else None,
         }
         for r in rows
     ]

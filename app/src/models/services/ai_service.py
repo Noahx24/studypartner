@@ -31,7 +31,12 @@ import urllib.parse
 import urllib.request
 
 from app.src.models import AIArtifact, LearningUnit, Subtopic, UserSelection
-from app.storage import get_ai_artifact, save_ai_artifact, delete_ai_artifacts_for
+from app.storage import (
+    delete_ai_artifacts_for,
+    get_ai_artifact,
+    list_recent_parsing_corrections,
+    save_ai_artifact,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +285,8 @@ class AIService:
             prompt_template=prompt,
             prompt_vars={"title": sub.title, "body": sub.content},
             low_data=selection.low_data_mode or self.low_data,
+            user_id=selection.user_id,
+            module_id=selection.module_id,
         )
 
     def generate_subtopic_quiz(self, sub: Subtopic, selection: UserSelection) -> dict:
@@ -292,6 +299,8 @@ class AIService:
             prompt_template=prompt,
             prompt_vars={"title": sub.title, "body": sub.content},
             low_data=selection.low_data_mode or self.low_data,
+            user_id=selection.user_id,
+            module_id=selection.module_id,
         )
 
     def generate_topic_quiz(self, lu: LearningUnit, selection: UserSelection) -> dict:
@@ -307,6 +316,8 @@ class AIService:
             prompt_template=PROMPT_TOPIC_QUIZ,
             prompt_vars={"topic": lu.topic, "body": body},
             low_data=selection.low_data_mode or self.low_data,
+            user_id=selection.user_id,
+            module_id=selection.module_id,
         )
 
     def regenerate(self, scope: str, ref_id: str, salt: str | None = None) -> None:
@@ -322,10 +333,25 @@ class AIService:
         prompt_template: str,
         prompt_vars: dict,
         low_data: bool,
+        user_id: str | None = None,
+        module_id: str | None = None,
     ) -> dict:
         prompt = prompt_template.format(**prompt_vars)
+        # Recent user corrections become a "previously the user changed
+        # X to Y" preamble. This is the core feedback-improves-accuracy
+        # loop: rename a misparsed unit once, future AI runs on the same
+        # module see the rename and bias toward the corrected vocabulary.
+        # Corrections are folded into the prompt_hash so flipping them
+        # does NOT silently serve a stale cached artifact.
+        corrections_block = ""
+        if user_id and module_id:
+            corrections = list_recent_parsing_corrections(user_id, module_id, limit=5)
+            if corrections:
+                corrections_block = _format_corrections_preamble(corrections)
+                prompt = corrections_block + prompt
+
         content_hash = _sha(body)
-        prompt_hash = _sha(prompt_template + f"|low_data={int(low_data)}")
+        prompt_hash = _sha(prompt_template + f"|low_data={int(low_data)}|corrections={_sha(corrections_block)}")
 
         # Filter the cache lookup by the *currently configured* model.
         # Without this, a stub artifact stored during an Ollama fallback
@@ -368,6 +394,27 @@ class AIService:
         )
         save_ai_artifact(artifact)
         return payload
+
+
+def _format_corrections_preamble(corrections: list[dict]) -> str:
+    """Turn raw parsing_feedback rows into a few-shot preamble. Kept short
+    on purpose — small local models (Ollama) get easily distracted by long
+    contexts."""
+    lines = [
+        "Use the following user corrections from earlier in this module as guidance — match the user's vocabulary and structural style:"
+    ]
+    for c in corrections:
+        kind = c.get("kind")
+        before = c.get("before") or {}
+        after = c.get("after") or {}
+        if kind == "rename_unit":
+            lines.append(f"- Unit was renamed from {before.get('topic')!r} to {after.get('topic')!r}")
+        elif kind == "rename_subtopic":
+            lines.append(f"- Subtopic was renamed from {before.get('title')!r} to {after.get('title')!r}")
+        elif kind == "edit_subtopic_content":
+            lines.append("- A subtopic's content was edited; prefer concise, focused subtopics.")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
 
 
 def _safe_parse_json(raw: str) -> dict:
