@@ -257,6 +257,7 @@ def init_db() -> None:
         _ensure_column(conn, "users", "password_hash", "TEXT")
         _ensure_column(conn, "moodle_resources", "included_in_ai", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "moodle_resources", "ingested_at", "TEXT")
+        _ensure_column(conn, "moodle_resources", "filename", "TEXT")
         with conn:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_moodle_resources_module ON moodle_resources(module_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_passports_expiry ON moodle_launch_passports(expires_at)")
@@ -910,18 +911,19 @@ def upsert_moodle_resources(resources: list[MoodleResource]) -> None:
     with get_connection() as conn:
         conn.executemany(
             """
-            INSERT INTO moodle_resources (id, module_id, title, type, file_size, url, downloaded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO moodle_resources (id, module_id, title, type, file_size, url, downloaded_at, filename)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 module_id     = excluded.module_id,
                 title         = excluded.title,
                 type          = excluded.type,
                 file_size     = excluded.file_size,
                 url           = excluded.url,
-                downloaded_at = excluded.downloaded_at
+                downloaded_at = excluded.downloaded_at,
+                filename      = excluded.filename
             """,
             [
-                (r.id, r.module_id, r.title, r.type, r.file_size, r.url, r.downloaded_at.isoformat() if r.downloaded_at else None)
+                (r.id, r.module_id, r.title, r.type, r.file_size, r.url, r.downloaded_at.isoformat() if r.downloaded_at else None, r.filename)
                 for r in resources
             ],
         )
@@ -1001,6 +1003,7 @@ def list_resources_pending_ingest(user_id: str) -> list[MoodleResource]:
             file_size=r["file_size"],
             url=r["url"],
             downloaded_at=datetime.fromisoformat(r["downloaded_at"]) if r["downloaded_at"] else None,
+            filename=r["filename"] if "filename" in r.keys() else None,
         )
         for r in rows
     ]
@@ -1025,19 +1028,32 @@ def save_launch_passport(passport: str, user_id: str, base_url: str, created: da
 
 
 def consume_launch_passport(passport: str, now: datetime) -> tuple[str, str] | None:
-    """Atomically claim a passport. Returns (user_id, base_url) if it was
-    valid and unexpired. Always deletes."""
+    """Atomically claim a passport.
+
+    A single `DELETE … RETURNING` is the only authoritative write. SQLite
+    serializes writes per DB file, so two concurrent callers cannot both
+    delete the same row — exactly one wins and gets the RETURNING payload;
+    the loser gets an empty result. This is what makes the passport a true
+    single-use guard against replay / CSRF.
+
+    Returns (user_id, base_url) on success, or None if the passport was
+    already consumed, never issued, or expired (we still consume expired
+    passports so they can't be retried).
+    """
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT user_id, base_url, expires_at FROM moodle_launch_passports WHERE passport = ?",
+            """
+            DELETE FROM moodle_launch_passports
+             WHERE passport = ?
+            RETURNING user_id, base_url, expires_at
+            """,
             (passport,),
         ).fetchone()
-        if not row:
-            return None
-        conn.execute("DELETE FROM moodle_launch_passports WHERE passport = ?", (passport,))
-        if datetime.fromisoformat(row["expires_at"]) < now:
-            return None
-        return row["user_id"], row["base_url"]
+    if not row:
+        return None
+    if datetime.fromisoformat(row["expires_at"]) < now:
+        return None
+    return row["user_id"], row["base_url"]
 
 
 def purge_expired_launch_passports(now: datetime) -> None:
@@ -1057,6 +1073,7 @@ def list_moodle_resources_for_module(module_id: str) -> list[MoodleResource]:
             file_size=r["file_size"],
             url=r["url"],
             downloaded_at=datetime.fromisoformat(r["downloaded_at"]) if r["downloaded_at"] else None,
+            filename=r["filename"] if "filename" in r.keys() else None,
         )
         for r in rows
     ]

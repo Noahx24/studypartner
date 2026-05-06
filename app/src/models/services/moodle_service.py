@@ -257,6 +257,7 @@ def sync(user_id: str) -> dict:
                             type=mod.get("modname", "resource"),
                             file_size=f.get("filesize"),
                             url=f.get("fileurl"),
+                            filename=f.get("filename"),
                         )
                     )
         upsert_moodle_resources(resources)
@@ -315,12 +316,49 @@ def fetch_resource_bytes(user_id: str, url: str) -> bytes:
         raise MoodleError(f"Resource fetch failed: {exc}") from exc
 
 
+def _filename_for_ingest(r: MoodleResource) -> str | None:
+    """Return a filename whose extension reflects the underlying file.
+
+    Order of preference:
+      1. The `filename` column populated from Moodle's WS response — this
+         is the actual file name (`study-guide.pdf`) and is authoritative.
+      2. The last path segment of the resource URL — Moodle file URLs
+         follow `…/pluginfile.php/<ctx>/mod_resource/content/<rev>/<file>`
+         so the trailing segment is the real filename. Picked apart with
+         `urllib.parse.urlsplit` so query params don't pollute it.
+      3. None — caller treats this as unsupported and skips with reason.
+
+    Returns only filenames whose extension is supported by the ingestion
+    pipeline (.pdf/.docx/.txt). Anything else is rejected here so the
+    caller can produce a clean `skipped` reason instead of a low-level
+    extraction error.
+    """
+    candidates: list[str] = []
+    if r.filename:
+        candidates.append(r.filename)
+    if r.url:
+        path = urllib.parse.urlsplit(r.url).path
+        last = urllib.parse.unquote(path.rsplit("/", 1)[-1]) if path else ""
+        if last:
+            candidates.append(last)
+    for name in candidates:
+        if name.lower().endswith((".pdf", ".docx", ".txt")):
+            return name
+    return None
+
+
 def ingest_selected_materials(user_id: str) -> dict:
     """Download and ingest every resource the user flagged for AI.
 
     Idempotent — resources already marked `ingested_at` are skipped on
     re-runs. Failures on individual resources don't abort the batch;
     they're collected in `skipped` so the UI can show what didn't make it.
+
+    Critical: the underlying ingestion pipeline picks its parser by
+    file extension. The Moodle activity *title* is the display name
+    (e.g. "Study Guide") and frequently lacks an extension, so we must
+    use the actual filename — either the one Moodle's WS API returned
+    (preferred) or the last path segment of the file URL.
     """
     from app.src.models.services.ingestion_service import ingest_moodle_resource
     from app.storage import get_user
@@ -336,6 +374,10 @@ def ingest_selected_materials(user_id: str) -> dict:
         if not r.url:
             skipped.append({"id": r.id, "reason": "no url"})
             continue
+        filename = _filename_for_ingest(r)
+        if not filename:
+            skipped.append({"id": r.id, "reason": "unsupported file type"})
+            continue
         try:
             content = fetch_resource_bytes(user_id, r.url)
         except MoodleError as exc:
@@ -349,7 +391,7 @@ def ingest_selected_materials(user_id: str) -> dict:
                 module_type=ModuleType.semester,
                 resource_title=r.title,
                 resource_content=content,
-                resource_filename=r.title or "resource",
+                resource_filename=filename,
             )
             mark_resource_ingested(r.id, utcnow_aware())
             ingested.append(r.id)

@@ -218,3 +218,4 @@ class MoodleResource:
     file_size: int | None = None
     url: str | None = None
     downloaded_at: datetime | None = None
+    filename: str | None = None  # actual file name with extension (study-guide.pdf)

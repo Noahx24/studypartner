@@ -250,6 +250,159 @@ def test_user_cannot_flip_other_users_resources():
     assert all(row["included_in_ai"] is False for row in rows)
 
 
+def test_passport_consume_is_single_use_under_concurrency():
+    """Two threads racing on the same passport must produce exactly one
+    winner. The DELETE…RETURNING pattern relies on SQLite serializing
+    writes; this regression test would have failed against the older
+    SELECT-then-DELETE implementation, where both threads could read the
+    row before either delete committed."""
+    import threading
+    from app.src.utils.time import utcnow_aware
+    from app.storage import save_launch_passport, consume_launch_passport
+    from datetime import timedelta
+
+    _fresh_db()
+    now = utcnow_aware()
+    save_launch_passport("race-passport", "u1", "https://x", now, now + timedelta(minutes=5))
+
+    results: list[object] = []
+    barrier = threading.Barrier(8)
+
+    def worker():
+        barrier.wait()
+        results.append(consume_launch_passport("race-passport", utcnow_aware()))
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    winners = [r for r in results if r is not None]
+    losers = [r for r in results if r is None]
+    assert len(winners) == 1, f"expected exactly one winner, got {winners}"
+    assert len(losers) == 7
+    assert winners[0] == ("u1", "https://x")
+
+
+def test_ingest_filename_prefers_moodle_filename(monkeypatch):
+    """Moodle's activity *title* is a display name with no extension —
+    'Study Guide' won't be parseable. The ingestion path must pick a
+    real filename (`study-guide.pdf`) from the resource so the parser
+    knows which extractor to use."""
+    from app.src.models.services import moodle_service
+    from app.src.models.services.moodle_service import ingest_selected_materials
+    from app.storage import (
+        save_moodle_account,
+    )
+    from app.src.models import MoodleAccount
+
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    add_module(Module(id="moodle-1", user_id=user_id, name="X", module_type=ModuleType.semester))
+    upsert_moodle_resources([
+        MoodleResource(
+            id="r-pdf",
+            module_id="moodle-1",
+            title="Study Guide",  # no extension — common Moodle convention
+            type="resource",
+            file_size=10,
+            url="https://lms.example.com/webservice/pluginfile.php/123/mod_resource/content/1/study-guide.pdf",
+            filename="study-guide.pdf",
+        ),
+    ])
+    client.post("/moodle/materials/select", headers=headers, json={"include": ["r-pdf"]})
+
+    save_moodle_account(
+        MoodleAccount(user_id=user_id, base_url="https://lms.example.com", token="ws-tok"),
+        moodle_service.encrypt_token("ws-tok"),
+    )
+
+    captured = {}
+
+    def fake_fetch(uid, url):
+        # Tiny but valid-looking text content; ingestion accepts plain bytes
+        # for any supported extension (parser falls back to latin-1).
+        return b"Pretend PDF body. Lorem ipsum. " * 50
+
+    def fake_ingest(*, user, module_id, module_name, module_type, resource_title, resource_content, resource_filename):
+        captured["resource_filename"] = resource_filename
+        captured["resource_title"] = resource_title
+        return {"module_id": module_id, "filepath": "x", "page_count": None,
+                "learning_unit_count": 1, "subtopic_count": 1,
+                "topic_count": 1, "unit_count": 1}
+
+    monkeypatch.setattr(moodle_service, "fetch_resource_bytes", fake_fetch)
+    import app.src.models.services.ingestion_service as ingestion_module
+    monkeypatch.setattr(ingestion_module, "ingest_moodle_resource", fake_ingest)
+    # Re-import binding so ingest_selected_materials picks up the patched ref
+    monkeypatch.setattr(
+        "app.src.models.services.ingestion_service.ingest_moodle_resource",
+        fake_ingest,
+    )
+
+    result = ingest_selected_materials(user_id)
+    assert result["count"] == 1, result
+    assert captured["resource_filename"] == "study-guide.pdf"
+    assert captured["resource_title"] == "Study Guide"
+
+
+def test_ingest_falls_back_to_url_when_filename_missing(monkeypatch):
+    """Older sync data may not have the `filename` column populated.
+    Fall back to the URL's last path segment so existing rows still work."""
+    from app.src.models.services import moodle_service
+    from app.src.models.services.moodle_service import _filename_for_ingest
+
+    r = MoodleResource(
+        id="r",
+        module_id="m",
+        title="Tutorial Letter 102",  # no extension
+        type="resource",
+        url="https://lms.example.com/webservice/pluginfile.php/9/mod_resource/content/1/TL102.docx?token=secret",
+        filename=None,
+    )
+    assert _filename_for_ingest(r) == "TL102.docx"
+
+
+def test_ingest_skips_unsupported_file_types(monkeypatch):
+    """A Moodle resource pointing at an .mp4 has no parser — must skip
+    cleanly with a reason instead of crashing the batch."""
+    from app.src.models.services import moodle_service
+    from app.src.models.services.moodle_service import ingest_selected_materials
+    from app.storage import save_moodle_account
+    from app.src.models import MoodleAccount
+
+    _fresh_db()
+    client = TestClient(app)
+    token, user_id = _register(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    add_module(Module(id="m", user_id=user_id, name="X", module_type=ModuleType.semester))
+    upsert_moodle_resources([
+        MoodleResource(
+            id="r-vid",
+            module_id="m",
+            title="Lecture recording",
+            type="resource",
+            url="https://lms.example.com/pluginfile.php/1/mod_resource/content/1/lecture.mp4",
+            filename="lecture.mp4",
+        ),
+    ])
+    client.post("/moodle/materials/select", headers=headers, json={"include": ["r-vid"]})
+
+    save_moodle_account(
+        MoodleAccount(user_id=user_id, base_url="https://lms.example.com", token="ws-tok"),
+        moodle_service.encrypt_token("ws-tok"),
+    )
+
+    result = ingest_selected_materials(user_id)
+    assert result["count"] == 0
+    assert any(s["id"] == "r-vid" and "unsupported" in s["reason"] for s in result["skipped"])
+
+
 def test_resync_preserves_user_material_selection():
     _fresh_db()
     client = TestClient(app)
