@@ -348,6 +348,28 @@ def update_user_multiplier(user_id: str, multiplier: float, feedback_samples: in
         )
 
 
+def update_user_profile(user_id: str, fields: dict) -> None:
+    """Patch mutable profile fields. Caller has already validated values
+    against the Pydantic schema in the route layer; storage only filters
+    the set of allowed columns to avoid SQL-injection-via-column-name."""
+    allowed = {
+        "name",
+        "email",
+        "hours_per_day",
+        "days_per_week",
+        "pace",
+        "custom_minutes_per_500_words",
+        "max_daily_hours",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [user_id]
+    with get_connection() as conn:
+        conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
+
+
 def add_feedback(user_id: str, session_id: str, study_unit_id: str, estimated_time_minutes: int, actual_time_minutes: int, ratio: float) -> None:
     with get_connection() as conn:
         conn.execute(
@@ -574,6 +596,62 @@ def mark_session_complete(session_id: str) -> None:
             return
         conn.execute("UPDATE sessions SET status = 'completed' WHERE id = ?", (session_id,))
         conn.execute("UPDATE study_units SET status = 'completed' WHERE id = ?", (row["unit_id"],))
+
+
+def mark_session_missed(session_id: str) -> bool:
+    """Mark a planned session as missed. Returns True if the row existed
+    and was updated. The reschedule endpoint then re-distributes the
+    remaining work across the user's future days."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "UPDATE sessions SET status = 'missed' WHERE id = ? AND status = 'planned'",
+            (session_id,),
+        )
+        return cur.rowcount > 0
+
+
+def get_session_owner(session_id: str) -> str | None:
+    """Look up the user_id that owns a session — needed at the route
+    layer to enforce ownership before marking it missed."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    return row["user_id"] if row else None
+
+
+def list_modules_with_counts(user_id: str) -> list[dict]:
+    """Modules + per-module learning-unit and subtopic counts, plus the
+    nearest assessment due date. Drives the Modules list UI without
+    needing a second roundtrip per module."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                m.id, m.user_id, m.name, m.module_type,
+                COUNT(DISTINCT lu.id) AS unit_count,
+                COUNT(s.id)           AS subtopic_count,
+                MIN(a.due_date)       AS next_due_date
+            FROM modules m
+            LEFT JOIN learning_units lu ON lu.module_id = m.id
+            LEFT JOIN subtopics s       ON s.learning_unit_id = lu.id
+            LEFT JOIN assessments a     ON a.module_id = m.id
+            WHERE m.user_id = ?
+            GROUP BY m.id
+            ORDER BY (next_due_date IS NULL), next_due_date, m.name
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "user_id": r["user_id"],
+            "name": r["name"],
+            "module_type": r["module_type"],
+            "unit_count": int(r["unit_count"] or 0),
+            "subtopic_count": int(r["subtopic_count"] or 0),
+            "next_due_date": r["next_due_date"],
+        }
+        for r in rows
+    ]
 
 
 def get_module_content(module_id: str) -> dict:

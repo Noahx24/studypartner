@@ -16,6 +16,7 @@ from app.storage import (
     get_module_content,
     get_module_study_units,
     get_user,
+    list_modules_with_counts,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,16 @@ async def upload_content_endpoint(
         return upload_and_ingest(user, module_id, module_name, module_type, filename, file_content, pasted_text)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/modules")
+def list_modules_endpoint(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """List the current user's modules with parsed-unit counts and the
+    nearest assessment deadline. Drives the Modules tab. Per-module
+    detail (full unit tree, content) lives behind /modules/{id}/structure."""
+    return {"modules": list_modules_with_counts(current_user.id)}
 
 
 @router.get("/modules/{module_id}/content")

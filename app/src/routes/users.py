@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.src.models import Pace, User
 from app.src.models.services.auth_service import create_token, hash_password, verify_password
 from app.src.utils.auth import get_current_user
-from app.storage import create_user, get_user, get_user_by_email
+from app.storage import create_user, get_user, get_user_by_email, update_user_profile
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -29,6 +29,15 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=320)
     password: str = Field(..., min_length=1, max_length=128)
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    hours_per_day: float | None = Field(default=None, gt=0, le=24)
+    days_per_week: int | None = Field(default=None, ge=1, le=7)
+    pace: str | None = None
+    custom_minutes_per_500_words: int | None = Field(default=None, gt=0, le=600)
+    max_daily_hours: float | None = Field(default=None, gt=0, le=24)
 
 
 @router.post("/register")
@@ -68,6 +77,26 @@ def login_endpoint(body: LoginRequest) -> dict:
 def get_me(current_user: User = Depends(get_current_user)) -> dict:
     """Return the profile of the authenticated user."""
     return _serialize(current_user)
+
+
+@router.patch("/me")
+def patch_me(
+    body: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Update the authenticated user's profile. Used by the first-run
+    onboarding wizard to persist availability (hours/day, days/week,
+    pace) and by the Profile page for ongoing edits. Pace strings are
+    validated against the Pace enum."""
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "pace" in fields:
+        try:
+            fields["pace"] = Pace(fields["pace"]).value
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid pace") from exc
+    update_user_profile(current_user.id, fields)
+    refreshed = get_user(current_user.id)
+    return _serialize(refreshed)
 
 
 @router.get("/{user_id}")
