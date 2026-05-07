@@ -1,16 +1,16 @@
 import React, { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { format, parseISO, differenceInDays } from 'date-fns';
+import { format } from 'date-fns';
 import TodayHeader from '../components/TodayHeader';
 import SessionCard from '../components/SessionCard';
 import UpcomingPreview from '../components/UpcomingPreview';
 import { AnimatePresence } from 'framer-motion';
-import { BookOpen, AlertTriangle, Calendar } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { api } from '@/api/client';
+import { toast } from 'sonner';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -43,13 +43,30 @@ export default function Dashboard() {
   }, [allSessions]);
 
   const handleComplete = (session) => {
-    api.completeSession(session.id).then(() =>
-      queryClient.invalidateQueries({ queryKey: ['daily-plan'] })
-    );
+    api.completeSession(session.id).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['daily-plan'] });
+      // Plans/calendar pull from the same backend rows; refresh both.
+      queryClient.invalidateQueries({ queryKey: ['weekly-plan'] });
+    });
   };
 
-  const handleMiss = () => {
-    queryClient.invalidateQueries({ queryKey: ['daily-plan'] });
+  // Skip → server marks the session missed AND auto-reschedules the
+  // remaining work from today so the plan stays achievable. Without
+  // this the "Skip" button looked like it did something but only
+  // invalidated the React Query cache — the row in SQLite stayed
+  // `planned` and showed up on Today again on next render.
+  const handleMiss = (session) => {
+    api.markSessionMissed(session.id)
+      .then((res) => {
+        if (res.rescheduled) {
+          toast.success('Skipped — plan re-balanced across upcoming days');
+        } else {
+          toast.message('Already done');
+        }
+        queryClient.invalidateQueries({ queryKey: ['daily-plan'] });
+        queryClient.invalidateQueries({ queryKey: ['weekly-plan'] });
+      })
+      .catch((err) => toast.error(err.message || 'Could not skip session'));
   };
 
   return (

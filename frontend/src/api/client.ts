@@ -118,6 +118,21 @@ export const api = {
 
   getMe: () => request<UserSettings & { id: string }>('/users/me'),
 
+  updateMyProfile: (
+    payload: Partial<{
+      name: string;
+      hours_per_day: number;
+      days_per_week: number;
+      pace: 'slow' | 'normal' | 'fast' | 'custom';
+      custom_minutes_per_500_words: number | null;
+      max_daily_hours: number;
+    }>,
+  ) =>
+    request<UserSettings & { id: string }>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
   getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
 
   createModule: (userId: string, module: ModuleForm) =>
@@ -164,6 +179,19 @@ export const api = {
       unit_count: number;
     }>('/upload', { method: 'POST', body: form });
   },
+
+  listModules: () =>
+    request<{
+      modules: Array<{
+        id: string;
+        user_id: string;
+        name: string;
+        module_type: 'year' | 'semester';
+        unit_count: number;
+        subtopic_count: number;
+        next_due_date: string | null;
+      }>;
+    }>(`/modules`),
 
   getModuleContent: (moduleId: string) => request<ModuleContentResponse>(`/modules/${moduleId}/content`),
   getStudyUnits: (moduleId: string) => request<StudyUnitsResponse>(`/modules/${moduleId}/study-units`),
@@ -235,6 +263,14 @@ export const api = {
 
   completeSession: (sessionId: string) =>
     request<{ status: string; session_id: string }>(`/plans/sessions/${sessionId}/complete`, { method: 'POST' }),
+
+  markSessionMissed: (sessionId: string) =>
+    request<{
+      status: string;
+      session_id: string;
+      rescheduled: boolean;
+      sessions?: Array<{ id: string; session_date: string; status: string; module_id: string; planned_minutes: number }>;
+    }>(`/plans/sessions/${sessionId}/missed`, { method: 'POST' }),
 
   submitFeedback: (payload: { user_id: string; session_id: string; actual_time_minutes: number }) =>
     request<{ multiplier: number; samples: number; status: string }>('/plans/session/feedback', {

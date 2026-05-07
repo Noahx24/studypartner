@@ -314,12 +314,18 @@ def test_stub_fallback_does_not_block_ollama_recovery(monkeypatch):
     # Confirm an artifact was stored, and it's tagged with the stub model
     # rather than the Ollama model. We don't filter by model here so we
     # observe whatever row was actually saved.
+    #
+    # Note: prompt_hash now includes a corrections fingerprint (added in
+    # the parsed-units feedback work). For a brand-new user with no
+    # corrections, the corrections block is empty — but the hash still
+    # mixes in sha256("").
     from app.storage import get_ai_artifact
-    from app.src.models.services.ai_service import PROMPT_SUMMARY
+    from app.src.models.services.ai_service import PROMPT_SUMMARY, _sha
     import hashlib
     content_hash = hashlib.sha256(sub.content.encode("utf-8")).hexdigest()
+    empty_corrections_hash = _sha("")
     prompt_hash = hashlib.sha256(
-        (PROMPT_SUMMARY + "|low_data=0").encode("utf-8")
+        (PROMPT_SUMMARY + f"|low_data=0|corrections={empty_corrections_hash}").encode("utf-8")
     ).hexdigest()
     stub_hit = get_ai_artifact("summary", "s-1", content_hash, prompt_hash)
     assert stub_hit is not None
