@@ -34,29 +34,49 @@
 
   <main id="top">
 
-    <!-- SCROLL 1 · HERO -->
+    <!-- ═══════════════ SCROLL 1 · HERO ═══════════════ -->
     <section class="scroll scroll--hero">
       <div class="hero">
 
         <div class="hero__copy">
-          <span class="pill"><span class="pill__dot"></span> Mobile-first. Low-data. Built for working students.</span>
+          <span class="pill">
+            <span class="pill__dot"></span>
+            Mobile-first · Low-data · Moodle integrated
+          </span>
 
           <h1 class="hero__title">
             Turn your notes and PDFs into a <span class="grad">daily study plan</span> that fits the hours you actually have.
           </h1>
 
           <p class="hero__sub">
-            StudyPartner is an AI study planner. Upload your notes, PDFs, textbooks, past papers, or Moodle content. Tell it how many hours you have per day. Get a realistic daily schedule that adapts when you fall behind.
+            StudyPartner is an AI study planner for working students. Upload your notes, PDFs, textbooks, past papers, or sync directly from Moodle. Tell it how many hours you have. Get a realistic daily schedule that reshuffles itself when life gets in the way.
           </p>
 
           <ul class="benefits">
-            <li><span class="tick" aria-hidden="true">✓</span> Know exactly what to study today, in under a minute.</li>
-            <li><span class="tick" aria-hidden="true">✓</span> A plan built around your real availability, not a generic timer.</li>
-            <li><span class="tick" aria-hidden="true">✓</span> Miss a session? It reshuffles itself. No catch-up panic.</li>
-            <li><span class="tick" aria-hidden="true">✓</span> Works on cheap phones and patchy data.</li>
+            <li>
+              <span class="tick" aria-hidden="true">✓</span>
+              Know exactly what to study today, in under a minute.
+            </li>
+            <li>
+              <span class="tick" aria-hidden="true">✓</span>
+              A plan built around your real availability, not a generic timer.
+            </li>
+            <li>
+              <span class="tick" aria-hidden="true">✓</span>
+              Miss a session? It reshuffles itself. No catch-up panic.
+            </li>
+            <li>
+              <span class="tick tick--moodle" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M8 1C4.13 1 1 4.13 1 8s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm0 2.5c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 9.5c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08C12.71 11.72 10.5 13 8 13z"/></svg>
+              </span>
+              Connects directly to Moodle for seamless course access and uploads.
+            </li>
+            <li>
+              <span class="tick" aria-hidden="true">✓</span>
+              Works on cheap phones and patchy data.
+            </li>
           </ul>
 
-          <!-- Signup form -->
           <form id="notify" class="signup" novalidate>
             <div class="signup__row">
               <label class="sr-only" for="email">Your email address</label>
@@ -82,7 +102,7 @@
           </a>
         </div>
 
-        <!-- Phone mockup -->
+        <!-- Hero phone mockup -->
         <div class="hero__art" aria-hidden="true">
           <div class="phone">
             <div class="phone__notch"></div>
@@ -127,7 +147,7 @@
       </span>
     </section>
 
-    <!-- SCROLL 2 · HOW IT WORKS + CTA -->
+    <!-- ═══════════════ SCROLL 2 · HOW IT WORKS ═══════════════ -->
     <section id="how" class="scroll scroll--how reveal">
       <div class="how">
 
@@ -138,37 +158,204 @@
         </header>
 
         <ol class="steps">
+
+          <!-- ─── Step 1: Upload + Moodle sync ─── -->
           <li class="step">
-            <span class="step__num" aria-hidden="true">1</span>
-            <h3>Ingest your material</h3>
-            <p>Notes, PDFs, textbooks, past papers, and Moodle content. Upload, sync, or paste.</p>
+            <div class="mock" aria-hidden="true">
+              <div class="m-head">
+                <span class="m-title">Add material</span>
+                <span class="m-chip m-chip--green">
+                  <span class="m-chip-dot"></span>Moodle synced
+                </span>
+              </div>
+              <ul class="m-files">
+                <li>
+                  <span class="m-filetype">PDF</span>
+                  <span class="m-filename">Anatomy_Ch4.pdf</span>
+                  <span class="m-checkmark">✓</span>
+                </li>
+                <li>
+                  <span class="m-filetype">DOC</span>
+                  <span class="m-filename">Stats_Notes.docx</span>
+                  <span class="m-checkmark">✓</span>
+                </li>
+                <li>
+                  <span class="m-filetype">PDF</span>
+                  <span class="m-filename">Ethics_Reader.pdf</span>
+                  <span class="m-checkmark">✓</span>
+                </li>
+              </ul>
+              <div class="m-moodle-bar">
+                <span class="m-moodle-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="13" height="13" fill="currentColor"><circle cx="10" cy="10" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="7.5" r="2.5"/><path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
+                </span>
+                <span>4 Moodle courses imported automatically</span>
+              </div>
+            </div>
+            <div class="step__text">
+              <span class="step__num" aria-hidden="true">1</span>
+              <h3>Upload or sync from Moodle</h3>
+              <p>Drop in notes, PDFs, textbooks, or past papers. Or connect Moodle and your course content imports automatically.</p>
+            </div>
           </li>
+
+          <!-- ─── Step 2: Workload estimate ─── -->
           <li class="step">
-            <span class="step__num" aria-hidden="true">2</span>
-            <h3>Estimate the workload</h3>
-            <p>Page count, word count, and content complexity tell us how long each chapter really takes.</p>
+            <div class="mock" aria-hidden="true">
+              <div class="m-head">
+                <span class="m-title">Workload estimate</span>
+                <span class="m-chip">AI scored</span>
+              </div>
+              <ul class="m-bars">
+                <li>
+                  <span class="m-label">Anatomy</span>
+                  <span class="m-bar-track">
+                    <span class="m-bar-fill" style="--w: 68%"></span>
+                  </span>
+                  <b class="m-dur">2h 30m</b>
+                </li>
+                <li>
+                  <span class="m-label">Statistics</span>
+                  <span class="m-bar-track">
+                    <span class="m-bar-fill m-bar-fill--b" style="--w: 38%"></span>
+                  </span>
+                  <b class="m-dur">1h 15m</b>
+                </li>
+                <li>
+                  <span class="m-label">Ethics</span>
+                  <span class="m-bar-track">
+                    <span class="m-bar-fill m-bar-fill--c" style="--w: 90%"></span>
+                  </span>
+                  <b class="m-dur">3h 45m</b>
+                </li>
+              </ul>
+              <div class="m-total">
+                Total study time: <b>7h 30m</b>
+              </div>
+            </div>
+            <div class="step__text">
+              <span class="step__num" aria-hidden="true">2</span>
+              <h3>Estimate the workload</h3>
+              <p>Page count, word count, and content complexity show us how long each chapter will really take.</p>
+            </div>
           </li>
+
+          <!-- ─── Step 3: Availability ─── -->
           <li class="step">
-            <span class="step__num" aria-hidden="true">3</span>
-            <h3>Match your availability</h3>
-            <p>You say "5 hours a day, 4 days a week." We plan around shifts, family, and commutes.</p>
+            <div class="mock" aria-hidden="true">
+              <div class="m-head">
+                <span class="m-title">Your availability</span>
+              </div>
+              <p class="m-sub">Which days can you study?</p>
+              <div class="m-days">
+                <span class="m-day m-day--on">Mon</span>
+                <span class="m-day m-day--on">Tue</span>
+                <span class="m-day m-day--on">Wed</span>
+                <span class="m-day m-day--on">Thu</span>
+                <span class="m-day m-day--on">Fri</span>
+                <span class="m-day">Sat</span>
+                <span class="m-day">Sun</span>
+              </div>
+              <div class="m-hrs-row">
+                <span class="m-label">Hours per day</span>
+                <div class="m-slider-wrap">
+                  <div class="m-slider-track">
+                    <div class="m-slider-fill" style="width: 63%"></div>
+                    <div class="m-slider-thumb" style="left: 63%"></div>
+                  </div>
+                </div>
+                <b class="m-dur">5 hrs</b>
+              </div>
+            </div>
+            <div class="step__text">
+              <span class="step__num" aria-hidden="true">3</span>
+              <h3>Tell us your real schedule</h3>
+              <p>Pick your study days and hours per day. We work around your shifts, lectures, and family time.</p>
+            </div>
           </li>
+
+          <!-- ─── Step 4: Daily plan ─── -->
           <li class="step">
-            <span class="step__num" aria-hidden="true">4</span>
-            <h3>Get a daily schedule</h3>
-            <p>A realistic plan for today, this week, and right up to the exam.</p>
+            <div class="mock" aria-hidden="true">
+              <div class="m-head">
+                <span class="m-title">Today, Wednesday</span>
+                <span class="m-chip m-chip--purple">2h 0m</span>
+              </div>
+              <ul class="m-sessions">
+                <li class="m-session m-session--done">
+                  <span class="m-time">08:00</span>
+                  <span class="m-sname">Anatomy, Ch. 2</span>
+                  <span class="m-sdur">45m</span>
+                  <span class="m-scheck">✓</span>
+                </li>
+                <li class="m-session m-session--now">
+                  <span class="m-time">09:00</span>
+                  <span class="m-sname">Statistics notes</span>
+                  <span class="m-sdur">30m</span>
+                  <span class="m-snow">Now</span>
+                </li>
+                <li class="m-session">
+                  <span class="m-time">10:00</span>
+                  <span class="m-sname">Ethics Reader</span>
+                  <span class="m-sdur">45m</span>
+                </li>
+              </ul>
+              <div class="m-exam-bar">
+                <span class="m-exam-dot"></span>
+                Exam in 12 days · on track
+              </div>
+            </div>
+            <div class="step__text">
+              <span class="step__num" aria-hidden="true">4</span>
+              <h3>Get a daily schedule</h3>
+              <p>A realistic plan for today, this week, and right up to your exam date. Nothing overwhelming.</p>
+            </div>
           </li>
+
+          <!-- ─── Step 5: Adapts ─── -->
           <li class="step">
-            <span class="step__num" aria-hidden="true">5</span>
-            <h3>It adapts when you fall behind</h3>
-            <p>Miss a session, fall behind a chapter, or speed up. The plan reshuffles every day.</p>
+            <div class="mock" aria-hidden="true">
+              <div class="m-alert-card">
+                <div class="m-alert-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 2v10M10 15v.5"/><circle cx="10" cy="10" r="8"/></svg>
+                </div>
+                <div>
+                  <strong>You missed Monday</strong>
+                  <p>45 min of work redistributed across the week.</p>
+                </div>
+              </div>
+              <div class="m-redistrib">
+                <div class="m-adj">
+                  <small>Tue</small>
+                  <span class="m-adj-val">+10m</span>
+                </div>
+                <div class="m-adj">
+                  <small>Thu</small>
+                  <span class="m-adj-val">+20m</span>
+                </div>
+                <div class="m-adj">
+                  <small>Sat</small>
+                  <span class="m-adj-val">+15m</span>
+                </div>
+              </div>
+              <div class="m-ok-bar">
+                <span class="m-ok-dot"></span>
+                Still on track for Friday's exam
+              </div>
+            </div>
+            <div class="step__text">
+              <span class="step__num" aria-hidden="true">5</span>
+              <h3>It adapts when you fall behind</h3>
+              <p>Miss a session or speed ahead. The plan quietly reshuffles itself so you are always on track.</p>
+            </div>
           </li>
+
         </ol>
 
+        <!-- Final CTA -->
         <div class="how__cta">
           <h3>Ready to get your hours back?</h3>
           <p>We're rolling out early access now. Enter your email and we'll be in touch.</p>
-
           <form id="notify2" class="signup signup--lg" novalidate>
             <div class="signup__row">
               <label class="sr-only" for="email2">Your email address</label>
@@ -187,12 +374,12 @@
             </div>
             <p class="signup__msg" id="signupMsg2" role="status" aria-live="polite"></p>
           </form>
-
           <small class="fine">Mobile-first. Optimised for low-data environments. No spam.</small>
         </div>
 
       </div>
     </section>
+
   </main>
 
   <footer class="foot">
