@@ -27,16 +27,17 @@
       <span class="brand__name">StudyPartner</span>
     </a>
     <nav class="nav__links" aria-label="Primary">
-      <a href="#how">How it works</a>
-      <a href="mailto:contact@sibahledigital.co.za" class="nav__cta">Get early access</a>
+      <a href="#how" class="nav__link--hide">How it works</a>
+      <a href="#notify" class="nav__cta">Get early access</a>
     </nav>
   </header>
 
   <main id="top">
 
-    <!-- SCROLL 1 · HERO: what it is + the benefit, immediately -->
+    <!-- SCROLL 1 · HERO -->
     <section class="scroll scroll--hero">
       <div class="hero">
+
         <div class="hero__copy">
           <span class="pill"><span class="pill__dot"></span> Mobile-first. Low-data. Built for working students.</span>
 
@@ -45,27 +46,40 @@
           </h1>
 
           <p class="hero__sub">
-            StudyPartner is an AI study planner. Upload your notes, PDFs, textbooks, past papers, or Moodle content. Tell us how much time you have per day. Get a realistic daily schedule that adapts when you fall behind.
+            StudyPartner is an AI study planner. Upload your notes, PDFs, textbooks, past papers, or Moodle content. Tell it how many hours you have per day. Get a realistic daily schedule that adapts when you fall behind.
           </p>
 
           <ul class="benefits">
-            <li><span class="tick">✓</span> Know exactly what to study today, in under a minute.</li>
-            <li><span class="tick">✓</span> A plan that respects your real availability, not a generic timer.</li>
-            <li><span class="tick">✓</span> Miss a session? It reshuffles itself. No catch-up panic.</li>
-            <li><span class="tick">✓</span> Works on cheap phones and patchy data.</li>
+            <li><span class="tick" aria-hidden="true">✓</span> Know exactly what to study today, in under a minute.</li>
+            <li><span class="tick" aria-hidden="true">✓</span> A plan built around your real availability, not a generic timer.</li>
+            <li><span class="tick" aria-hidden="true">✓</span> Miss a session? It reshuffles itself. No catch-up panic.</li>
+            <li><span class="tick" aria-hidden="true">✓</span> Works on cheap phones and patchy data.</li>
           </ul>
 
-          <div class="cta-row">
-            <a class="btn btn--primary" href="mailto:contact@sibahledigital.co.za?subject=StudyPartner%20Early%20Access&body=Hi%2C%20I%27d%20like%20early%20access%20to%20StudyPartner.">
-              Email us for early access
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <a class="btn btn--ghost" href="#how">See how it works</a>
-          </div>
+          <!-- Signup form -->
+          <form id="notify" class="signup" novalidate>
+            <div class="signup__row">
+              <label class="sr-only" for="email">Your email address</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                placeholder="your@email.com"
+                autocomplete="email"
+              />
+              <button type="submit">
+                Get early access
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <p class="signup__msg" id="signupMsg" role="status" aria-live="polite"></p>
+          </form>
 
-          <p class="contact-line">
-            Or write to <a href="mailto:contact@sibahledigital.co.za">contact@sibahledigital.co.za</a>
-          </p>
+          <a href="#how" class="scroll-hint">
+            See how it works
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </a>
         </div>
 
         <!-- Phone mockup -->
@@ -81,11 +95,11 @@
                 <ul class="tasks">
                   <li class="task task--done">
                     <span class="check"></span>
-                    <div><strong>Anatomy, Ch. 4</strong><small>30 min, 12 pages</small></div>
+                    <div><strong>Anatomy, Ch. 4</strong><small>30 min · 12 pages</small></div>
                   </li>
                   <li class="task task--active">
                     <span class="check"></span>
-                    <div><strong>Statistics, notes review</strong><small>45 min, in progress</small></div>
+                    <div><strong>Statistics, notes review</strong><small>45 min · in progress</small></div>
                     <span class="badge">Now</span>
                   </li>
                   <li class="task">
@@ -94,28 +108,29 @@
                   </li>
                   <li class="task">
                     <span class="check"></span>
-                    <div><strong>Ethics PDF, pages 41 to 58</strong><small>20 min, low effort</small></div>
+                    <div><strong>Ethics PDF, pages 41 to 58</strong><small>20 min · low effort</small></div>
                   </li>
                 </ul>
                 <div class="adapt">
                   <span class="adapt__dot"></span>
-                  Plan rebalanced. You missed Tuesday, 25 min moved to Saturday.
+                  Plan rebalanced. Missed Tuesday, 25 min moved to Saturday.
                 </div>
               </div>
             </div>
           </div>
         </div>
+
       </div>
 
-      <a href="#how" class="scroll-cue" aria-label="Scroll for how it works">
-        <span>How it works</span>
+      <span class="scroll-cue" aria-hidden="true">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-      </a>
+      </span>
     </section>
 
     <!-- SCROLL 2 · HOW IT WORKS + CTA -->
-    <section id="how" class="scroll scroll--how">
+    <section id="how" class="scroll scroll--how reveal">
       <div class="how">
+
         <header class="how__head">
           <span class="eyebrow">How it works</span>
           <h2>From a stack of PDFs to a plan you can actually finish.</h2>
@@ -124,27 +139,27 @@
 
         <ol class="steps">
           <li class="step">
-            <span class="step__num">1</span>
+            <span class="step__num" aria-hidden="true">1</span>
             <h3>Ingest your material</h3>
             <p>Notes, PDFs, textbooks, past papers, and Moodle content. Upload, sync, or paste.</p>
           </li>
           <li class="step">
-            <span class="step__num">2</span>
+            <span class="step__num" aria-hidden="true">2</span>
             <h3>Estimate the workload</h3>
             <p>Page count, word count, and content complexity tell us how long each chapter really takes.</p>
           </li>
           <li class="step">
-            <span class="step__num">3</span>
+            <span class="step__num" aria-hidden="true">3</span>
             <h3>Match your availability</h3>
             <p>You say "5 hours a day, 4 days a week." We plan around shifts, family, and commutes.</p>
           </li>
           <li class="step">
-            <span class="step__num">4</span>
+            <span class="step__num" aria-hidden="true">4</span>
             <h3>Get a daily schedule</h3>
             <p>A realistic plan for today, this week, and right up to the exam.</p>
           </li>
           <li class="step">
-            <span class="step__num">5</span>
+            <span class="step__num" aria-hidden="true">5</span>
             <h3>It adapts when you fall behind</h3>
             <p>Miss a session, fall behind a chapter, or speed up. The plan reshuffles every day.</p>
           </li>
@@ -152,13 +167,30 @@
 
         <div class="how__cta">
           <h3>Ready to get your hours back?</h3>
-          <p>We're rolling out early access now. Drop us a line and we'll set you up.</p>
-          <a class="btn btn--primary btn--lg" href="mailto:contact@sibahledigital.co.za?subject=StudyPartner%20Early%20Access&body=Hi%2C%20I%27d%20like%20early%20access%20to%20StudyPartner.">
-            Email contact@sibahledigital.co.za
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </a>
-          <small class="fine">Mobile-first. Optimised for low-data environments.</small>
+          <p>We're rolling out early access now. Enter your email and we'll be in touch.</p>
+
+          <form id="notify2" class="signup signup--lg" novalidate>
+            <div class="signup__row">
+              <label class="sr-only" for="email2">Your email address</label>
+              <input
+                id="email2"
+                name="email"
+                type="email"
+                required
+                placeholder="your@email.com"
+                autocomplete="email"
+              />
+              <button type="submit">
+                Get early access
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <p class="signup__msg" id="signupMsg2" role="status" aria-live="polite"></p>
+          </form>
+
+          <small class="fine">Mobile-first. Optimised for low-data environments. No spam.</small>
         </div>
+
       </div>
     </section>
   </main>
@@ -172,7 +204,6 @@
         <span class="brand__name">StudyPartner</span>
       </div>
       <p class="foot__copy">&copy; <span id="year"></span> StudyPartner. Built by Sibahle Digital.</p>
-      <a class="foot__mail" href="mailto:contact@sibahledigital.co.za">contact@sibahledigital.co.za</a>
     </div>
   </footer>
 
