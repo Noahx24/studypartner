@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#07090f" />
+  <title>StudyPartner · A daily study plan that fits your real life</title>
+  <meta name="description" content="StudyPartner turns your notes, PDFs, textbooks, past papers, and Moodle content into a realistic daily study plan that fits the hours you actually have. Mobile-first, low-data, built for working students." />
+  <meta property="og:title" content="StudyPartner · A daily study plan that fits your real life" />
+  <meta property="og:description" content="Upload your study material, tell us how many hours you have, get a daily plan that adapts when life gets in the way." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow--a" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow--b" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="brand" href="#top" aria-label="StudyPartner">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="22" height="22"><path d="M6 23V8a2 2 0 0 1 2-2h10l8 6v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2Z" fill="url(#g1)"/><path d="M18 6v6h8" stroke="#fff" stroke-width="1.6" fill="none"/><defs><linearGradient id="g1" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+      </span>
+      <span class="brand__name">StudyPartner</span>
+    </a>
+    <nav class="nav__links" aria-label="Primary">
+      <a href="#how">How it works</a>
+      <a href="mailto:contact@sibahledigital.co.za" class="nav__cta">Get early access</a>
+    </nav>
+  </header>
+
+  <main id="top">
+
+    <!-- SCROLL 1 · HERO: what it is + the benefit, immediately -->
+    <section class="scroll scroll--hero">
+      <div class="hero">
+        <div class="hero__copy">
+          <span class="pill"><span class="pill__dot"></span> Mobile-first. Low-data. Built for working students.</span>
+
+          <h1 class="hero__title">
+            Turn your notes and PDFs into a <span class="grad">daily study plan</span> that fits the hours you actually have.
+          </h1>
+
+          <p class="hero__sub">
+            StudyPartner is an AI study planner. Upload your notes, PDFs, textbooks, past papers, or Moodle content. Tell us how much time you have per day. Get a realistic daily schedule that adapts when you fall behind.
+          </p>
+
+          <ul class="benefits">
+            <li><span class="tick">✓</span> Know exactly what to study today, in under a minute.</li>
+            <li><span class="tick">✓</span> A plan that respects your real availability, not a generic timer.</li>
+            <li><span class="tick">✓</span> Miss a session? It reshuffles itself. No catch-up panic.</li>
+            <li><span class="tick">✓</span> Works on cheap phones and patchy data.</li>
+          </ul>
+
+          <div class="cta-row">
+            <a class="btn btn--primary" href="mailto:contact@sibahledigital.co.za?subject=StudyPartner%20Early%20Access&body=Hi%2C%20I%27d%20like%20early%20access%20to%20StudyPartner.">
+              Email us for early access
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+            <a class="btn btn--ghost" href="#how">See how it works</a>
+          </div>
+
+          <p class="contact-line">
+            Or write to <a href="mailto:contact@sibahledigital.co.za">contact@sibahledigital.co.za</a>
+          </p>
+        </div>
+
+        <!-- Phone mockup -->
+        <div class="hero__art" aria-hidden="true">
+          <div class="phone">
+            <div class="phone__notch"></div>
+            <div class="phone__screen">
+              <div class="screen">
+                <div class="screen__top">
+                  <span class="screen__hello">Today, Wed</span>
+                  <span class="screen__date">2h 15m planned</span>
+                </div>
+                <ul class="tasks">
+                  <li class="task task--done">
+                    <span class="check"></span>
+                    <div><strong>Anatomy, Ch. 4</strong><small>30 min, 12 pages</small></div>
+                  </li>
+                  <li class="task task--active">
+                    <span class="check"></span>
+                    <div><strong>Statistics, notes review</strong><small>45 min, in progress</small></div>
+                    <span class="badge">Now</span>
+                  </li>
+                  <li class="task">
+                    <span class="check"></span>
+                    <div><strong>Past paper, Q3 to Q6</strong><small>40 min</small></div>
+                  </li>
+                  <li class="task">
+                    <span class="check"></span>
+                    <div><strong>Ethics PDF, pages 41 to 58</strong><small>20 min, low effort</small></div>
+                  </li>
+                </ul>
+                <div class="adapt">
+                  <span class="adapt__dot"></span>
+                  Plan rebalanced. You missed Tuesday, 25 min moved to Saturday.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <a href="#how" class="scroll-cue" aria-label="Scroll for how it works">
+        <span>How it works</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </a>
+    </section>
+
+    <!-- SCROLL 2 · HOW IT WORKS + CTA -->
+    <section id="how" class="scroll scroll--how">
+      <div class="how">
+        <header class="how__head">
+          <span class="eyebrow">How it works</span>
+          <h2>From a stack of PDFs to a plan you can actually finish.</h2>
+          <p>Five things StudyPartner does, automatically, every day.</p>
+        </header>
+
+        <ol class="steps">
+          <li class="step">
+            <span class="step__num">1</span>
+            <h3>Ingest your material</h3>
+            <p>Notes, PDFs, textbooks, past papers, and Moodle content. Upload, sync, or paste.</p>
+          </li>
+          <li class="step">
+            <span class="step__num">2</span>
+            <h3>Estimate the workload</h3>
+            <p>Page count, word count, and content complexity tell us how long each chapter really takes.</p>
+          </li>
+          <li class="step">
+            <span class="step__num">3</span>
+            <h3>Match your availability</h3>
+            <p>You say "5 hours a day, 4 days a week." We plan around shifts, family, and commutes.</p>
+          </li>
+          <li class="step">
+            <span class="step__num">4</span>
+            <h3>Get a daily schedule</h3>
+            <p>A realistic plan for today, this week, and right up to the exam.</p>
+          </li>
+          <li class="step">
+            <span class="step__num">5</span>
+            <h3>It adapts when you fall behind</h3>
+            <p>Miss a session, fall behind a chapter, or speed up. The plan reshuffles every day.</p>
+          </li>
+        </ol>
+
+        <div class="how__cta">
+          <h3>Ready to get your hours back?</h3>
+          <p>We're rolling out early access now. Drop us a line and we'll set you up.</p>
+          <a class="btn btn--primary btn--lg" href="mailto:contact@sibahledigital.co.za?subject=StudyPartner%20Early%20Access&body=Hi%2C%20I%27d%20like%20early%20access%20to%20StudyPartner.">
+            Email contact@sibahledigital.co.za
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <small class="fine">Mobile-first. Optimised for low-data environments.</small>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="foot__inner">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="20" height="20"><path d="M6 23V8a2 2 0 0 1 2-2h10l8 6v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2Z" fill="url(#g2)"/><path d="M18 6v6h8" stroke="#fff" stroke-width="1.6" fill="none"/><defs><linearGradient id="g2" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+        </span>
+        <span class="brand__name">StudyPartner</span>
+      </div>
+      <p class="foot__copy">&copy; <span id="year"></span> StudyPartner. Built by Sibahle Digital.</p>
+      <a class="foot__mail" href="mailto:contact@sibahledigital.co.za">contact@sibahledigital.co.za</a>
+    </div>
+  </footer>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
