@@ -428,16 +428,21 @@ pytest -q
 
 ## Threat model notes
 
-- **Moodle WS tokens** are stored under a base64 envelope today —
-  replace `encrypt_token` / `decrypt_token` in `moodle_service.py`
-  with Fernet (cryptography package) before going to production.
+- **Moodle WS tokens** are encrypted at rest with Fernet (AES-128-CBC
+  + HMAC, via the `cryptography` package). The key is read from
+  `STUDYPARTNER_FERNET_KEY`; missing/malformed key fails immediately.
+  Generate one with `python -m app.src.utils.crypto generate-key` and
+  export before booting. Key rotation requires re-encrypting existing
+  rows; without that, affected users must reconnect their Moodle.
 - **Launch passports** are single-use, server-side, 10-minute TTL,
   and bound to the StudyPartner user that initiated the launch. The
   signature on the returned blob is verified against the Moodle
   siteid to detect forgery.
-- **JWT** is HMAC-SHA256-signed with `STUDYPARTNER_SECRET` — change
-  this from `dev-secret-change-me` in production. JWTs are stateless;
-  there's no server-side revocation table yet.
+- **JWT** is HMAC-SHA256-signed with `STUDYPARTNER_SECRET`. When
+  `STUDYPARTNER_ENV=production` the boot is gated: a missing,
+  default, or short secret refuses to start. Pick a long random
+  value (`python -c "import secrets; print(secrets.token_urlsafe(48))"`).
+  JWTs are stateless; there is no server-side revocation table yet.
 - **Material selection writes** are scoped to the current user via
   `WHERE module_id IN (SELECT id FROM modules WHERE user_id = ?)` —
   a stolen session can't flip another user's resources.
