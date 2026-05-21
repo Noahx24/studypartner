@@ -31,25 +31,35 @@ student to paste a token manually.
 
 ## Connecting Moodle (mobile-launch flow)
 
+This integration uses Moodle's `tool_mobile/launch.php`, the same
+handshake the official Moodle Mobile app uses. The flow only completes
+end-to-end inside a native shell (Capacitor) that registers the
+`studypartner://` URL scheme with the OS. Moodle core does **not**
+accept `https://` callbacks here: `tool_mobile` enforces the RFC 3986
+scheme grammar (letters/digits/`.`/`+`/`-`) on the `urlscheme`
+parameter and rejects anything else with *"Invalid parameter: the value
+of urlscheme isn't valid"*.
+
 ```
-1. Student clicks "Fetch from myModules" in StudyPartner
-2. Frontend  → POST /moodle/launch { urlscheme: "https://app/moodle/callback?" }
+1. Student taps "Fetch from myModules" inside the StudyPartner app
+2. Frontend  → POST /moodle/launch { urlscheme: "studypartner" }
    Backend   → mints a single-use passport (10-min TTL, server-side)
               → returns
                 <MOODLE>/admin/tool/mobile/launch.php
                   ?service=moodle_mobile_app
                   &passport=<random>
-                  &urlscheme=https://app/moodle/callback?
-3. Frontend stashes the passport in localStorage and navigates the
-   browser to launch_url.
+                  &urlscheme=studypartner
+3. Frontend stashes the passport in localStorage and opens the launch
+   URL in the system browser (Capacitor's @capacitor/browser plugin).
 4. Moodle sees the user isn't signed in → redirects to the school's
-   Microsoft tenant.
-5. Microsoft authenticates the student → asserts identity back to Moodle.
-6. Moodle creates a WS token for that user, redirects to:
-        https://app/moodle/callback?token=<base64-blob>
-7. The /moodle/callback page in StudyPartner reads `token` from the
-   URL, reads `passport` from localStorage, POSTs both to
-   /moodle/launch/callback.
+   SSO tenant (Microsoft, SAML, OIDC, depending on the institution).
+5. SSO authenticates the student → asserts identity back to Moodle.
+6. Moodle mints a WS token for that user, redirects to:
+        studypartner://token=<base64-blob>
+7. The OS routes the custom-scheme URL to the StudyPartner native app.
+   Capacitor's App.appUrlOpen listener fires; the deep-link handler
+   reads `token` from the URL, reads `passport` from localStorage,
+   POSTs both to /moodle/launch/callback.
 8. Backend:
         - claims the passport (single-use; CSRF guard)
         - decodes blob → <signature>:::<token>:::<privatetoken>
@@ -60,18 +70,18 @@ student to paste a token manually.
    materials picker.
 ```
 
-The blob format and the signed-passport handshake are exactly what
-Moodle's official mobile app uses — no scraping, no cookie reuse, no
+The blob format and signed-passport handshake are exactly what
+Moodle's official mobile app uses; no scraping, no cookie reuse, no
 manual paste.
 
-### Required Moodle config
+### Why a native shell is mandatory
 
-UniSA's Moodle (or any Moodle running `tool_mobile`) needs to accept
-the `urlscheme` we send. For an `https://` callback, the site admin
-must allow web-app launches. If the site rejects our callback URL the
-launch fails — **there is no manual-paste fallback** by design. To
-guarantee acceptance, wrap StudyPartner in Capacitor and use a custom
-`studypartner://` scheme.
+The redirect Moodle issues at step 6 is `studypartner://token=...`,
+which only an OS-registered URL-scheme handler can catch. A pure-web
+build of StudyPartner cannot receive that redirect: the browser
+attempts to open the custom scheme and, finding no handler, fails. The
+Capacitor wrapper is what registers the scheme; without it the launch
+flow can't complete. There is no manual-paste fallback, by design.
 
 ### Required env var
 

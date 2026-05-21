@@ -28,13 +28,19 @@ router = APIRouter(prefix="/moodle", tags=["moodle"])
 class LaunchStartRequest(BaseModel):
     """Body for POST /moodle/launch.
 
-    `urlscheme` is what Moodle redirects to once the user signs in via
-    the school's SSO. For a web app pass an https URL ending with `?`
-    (Moodle appends `token=…` directly). For a native app, pass a
-    custom scheme like `studypartner://`.
+    `urlscheme` must be a bare URI-scheme name (e.g. ``studypartner``).
+    Moodle's tool_mobile builds the redirect target as
+    ``<urlscheme>://token=<blob>`` and rejects full URLs with "Invalid
+    parameter: the value of urlscheme isn't valid". The caller's native
+    shell registers the same scheme so the OS routes the token back in.
     """
 
-    urlscheme: str = Field(..., min_length=4, max_length=512)
+    urlscheme: str = Field(
+        ...,
+        min_length=2,
+        max_length=64,
+        pattern=r"^[a-zA-Z][a-zA-Z0-9.+\-]*$",
+    )
     base_url: str | None = Field(default=None, min_length=4, max_length=512)
 
 
