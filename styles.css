@@ -725,19 +725,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
   margin: 0 0 18px;
   color: var(--muted); font-size: 15px; line-height: 1.65;
 }
-.scale__link {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 9px 18px; border-radius: 999px;
-  background: rgba(255,255,255,.06); border: 1px solid var(--border-strong);
-  color: var(--text);
-  font-size: 14px; font-weight: 600;
-  transition: background .2s, border-color .2s, transform .15s;
-}
-.scale__link:hover {
-  background: rgba(255,255,255,.1);
-  border-color: rgba(34,211,238,.4);
-  transform: translateY(-1px);
-}
+.scale__form { max-width: 480px; margin: 0 auto; text-align: left; }
+.scale__form .signup__msg { text-align: center; }
 
 /* ═══════════ Reveal animation ═══════════ */
 .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
@@ -747,5 +736,5 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
   html { scroll-behavior: auto; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .scroll-cue { animation: none; }
-  .step, .pain, .ai-card, .scale__link { transition: none; }
+  .step, .pain, .ai-card { transition: none; }
 }

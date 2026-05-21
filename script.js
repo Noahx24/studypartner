@@ -4,13 +4,16 @@ document.getElementById('year').textContent = new Date().getFullYear();
 // Email signup: validate, POST to Formspree, show inline status.
 const FORMSPREE_ENDPOINT = 'https://formspree.io/f/mlgzdyro';
 
-function wireSignup(formId, msgId) {
+function wireSignup(formId, msgId, options = {}) {
   const form = document.getElementById(formId);
   if (!form) return;
   const msg = document.getElementById(msgId);
   const input = form.querySelector('input[type="email"]');
   const btn = form.querySelector('button[type="submit"]');
   const originalBtnHTML = btn.innerHTML;
+  const source = options.source || 'studypartner-landing';
+  const successText = options.successText || "Thanks! We'll email you the day we launch.";
+  const doneText = options.doneText || 'Joined ✓';
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -38,13 +41,13 @@ function wireSignup(formId, msgId) {
         },
         body: JSON.stringify({
           email: value,
-          source: 'studypartner-landing',
+          source: source,
         }),
       });
 
       if (res.ok) {
-        msg.textContent = "Thanks! We'll email you the day we launch.";
-        btn.textContent = 'Joined ✓';
+        msg.textContent = successText;
+        btn.textContent = doneText;
         input.value = '';
         // Keep button disabled to prevent duplicate submissions.
         return;
@@ -67,6 +70,11 @@ function wireSignup(formId, msgId) {
 
 wireSignup('notify', 'signupMsg');
 wireSignup('notify2', 'signupMsg2');
+wireSignup('partner', 'partnerMsg', {
+  source: 'institutional-partner',
+  successText: "Thanks! We'll reply to discuss a pilot.",
+  doneText: 'Sent ✓',
+});
 
 // Scroll-reveal for the second section only (hero is immediately visible)
 const revealTargets = document.querySelectorAll('.reveal');

@@ -469,10 +469,24 @@
           <span class="scale__pill">For institutions</span>
           <h3>Infrastructure for distance learning at scale.</h3>
           <p>StudyPartner is built to integrate with any Moodle-based institution and to run inside the data realities students actually face. We're open to pilot partnerships with universities and providers looking to reduce dropout in their distance-learning streams.</p>
-          <a href="mailto:hello@studypartner.app?subject=Institutional%20pilot%20enquiry" class="scale__link">
-            Partner with us
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </a>
+          <form id="partner" class="signup scale__form" novalidate>
+            <div class="signup__row">
+              <label class="sr-only" for="partnerEmail">Your work email</label>
+              <input
+                id="partnerEmail"
+                name="email"
+                type="email"
+                required
+                placeholder="name@institution.ac.za"
+                autocomplete="email"
+              />
+              <button type="submit">
+                Partner with us
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <p class="signup__msg" id="partnerMsg" role="status" aria-live="polite"></p>
+          </form>
         </div>
 
         <!-- Final waitlist CTA -->
