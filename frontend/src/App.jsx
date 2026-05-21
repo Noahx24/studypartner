@@ -3,12 +3,12 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { useMoodleDeepLink } from '@/lib/useMoodleDeepLink';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './views/Dashboard';
 import Modules from './views/Modules';
 import UnitsEditor from './views/UnitsEditor';
 import MoodleMaterials from './views/MoodleMaterials';
-import MoodleCallback from './views/MoodleCallback';
 import CalendarView from './views/CalendarView';
 import StudyPlan from './views/StudyPlan';
 import Profile from './views/Profile';
@@ -23,6 +23,8 @@ const Spinner = () => (
 
 const AuthenticatedApp = () => {
   const { isAuthenticated, isLoadingAuth } = useAuth();
+  // Listens for Moodle's studypartner:// deep-link redirect. No-op on web.
+  useMoodleDeepLink();
 
   if (isLoadingAuth) return <Spinner />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -38,7 +40,6 @@ const AuthenticatedApp = () => {
         <Route path="/plan" element={<StudyPlan />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
-      <Route path="/moodle/callback" element={<MoodleCallback />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

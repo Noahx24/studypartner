@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Cloud, Loader2 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { Button } from '@/components/ui/button';
 import { api } from '@/api/client';
 import { toast } from 'sonner';
@@ -34,7 +36,17 @@ export default function FetchFromMyModulesButton({ className }) {
         urlscheme: URLSCHEME,
       });
       localStorage.setItem(PASSPORT_KEY, passport);
-      window.location.assign(launch_url);
+      if (Capacitor.isNativePlatform()) {
+        // Open in the system browser so the school's SSO cookies live
+        // in the user's normal browser context, then let the OS route
+        // the studypartner:// redirect back via useMoodleDeepLink().
+        await Browser.open({ url: launch_url });
+      } else {
+        // Web-only: navigate the current tab. Won't complete the flow
+        // (no app to receive the custom-scheme redirect) but at least
+        // makes the protocol failure visible to the user.
+        window.location.assign(launch_url);
+      }
     } catch (err) {
       toast.error(err.message || 'Could not start the Moodle connection.');
       setBusy(false);

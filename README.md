@@ -83,13 +83,74 @@ attempts to open the custom scheme and, finding no handler, fails. The
 Capacitor wrapper is what registers the scheme; without it the launch
 flow can't complete. There is no manual-paste fallback, by design.
 
+### Building the native shell
+
+Capacitor 6 is wired into `frontend/`. The runtime listener and launch
+helper are already in the code:
+
+- `frontend/src/lib/useMoodleDeepLink.js` — listens for
+  `App.appUrlOpen`, parses `studypartner://token=...`, POSTs the token
+  + passport to `/moodle/launch/callback`.
+- `frontend/src/components/modules/FetchFromMyModulesButton.jsx` — on
+  native, opens the Moodle launch URL via `@capacitor/browser` so SSO
+  cookies live in the system browser; on web, falls back to a plain
+  redirect (which can't complete, but at least surfaces the failure).
+
+To actually build an installable app, generate the native projects
+locally:
+
+```bash
+cd frontend
+npm install
+npm run build
+npx cap add ios
+npx cap add android
+npx cap sync
+```
+
+Then register the `studypartner` URL scheme so the OS routes the
+redirect back into the app.
+
+**iOS** — open `ios/App/App/Info.plist` (in Xcode or a text editor)
+and add:
+
+```xml
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleURLName</key>
+    <string>app.studypartner.client</string>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <string>studypartner</string>
+    </array>
+  </dict>
+</array>
+```
+
+**Android** — open `android/app/src/main/AndroidManifest.xml`,
+find the main `<activity>` block, and add an intent filter:
+
+```xml
+<intent-filter android:autoVerify="false">
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="studypartner" />
+</intent-filter>
+```
+
+Re-run `npx cap sync` after the manifest edits. From there:
+`npx cap open ios` to build through Xcode, `npx cap open android` to
+build through Android Studio.
+
 ### Required env var
 
 ```bash
 export STUDYPARTNER_MOODLE_BASE_URL=https://mymodules.dtls.unisa.ac.za
 ```
 
-The frontend doesn't need to know the URL — the backend resolves it.
+The frontend doesn't need to know the URL; the backend resolves it.
 
 ## Selecting which materials feed the AI
 
