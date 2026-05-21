@@ -1,15 +1,18 @@
 // Footer year
 document.getElementById('year').textContent = new Date().getFullYear();
 
-// Email signup: validate, then open mail client pre-filled with the user's address
+// Email signup: validate, POST to Formspree, show inline status.
+const FORMSPREE_ENDPOINT = 'https://formspree.io/f/mlgzdyro';
+
 function wireSignup(formId, msgId) {
   const form = document.getElementById(formId);
   if (!form) return;
   const msg = document.getElementById(msgId);
   const input = form.querySelector('input[type="email"]');
   const btn = form.querySelector('button[type="submit"]');
+  const originalBtnHTML = btn.innerHTML;
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const value = (input.value || '').trim();
     const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -22,16 +25,43 @@ function wireSignup(formId, msgId) {
       return;
     }
 
-    const subject = encodeURIComponent('StudyPartner Early Access');
-    const body = encodeURIComponent(
-      'Hi,\n\nI\'d like early access to StudyPartner.\n\nMy email: ' + value
-    );
-    window.location.href =
-      'mailto:contact@sibahledigital.co.za?subject=' + subject + '&body=' + body;
-
-    msg.textContent = 'Opening your email app. We\'ll be in touch!';
-    btn.textContent = 'Sent ✓';
     btn.disabled = true;
+    btn.textContent = 'Sending…';
+    msg.textContent = '';
+
+    try {
+      const res = await fetch(FORMSPREE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: value,
+          source: 'studypartner-landing',
+        }),
+      });
+
+      if (res.ok) {
+        msg.textContent = "Thanks! We'll email you the day we launch.";
+        btn.textContent = 'Joined ✓';
+        input.value = '';
+        // Keep button disabled to prevent duplicate submissions.
+        return;
+      }
+
+      const data = await res.json().catch(() => ({}));
+      const detail = data && data.errors && data.errors[0] && data.errors[0].message;
+      msg.textContent = detail || "Something went wrong. Please try again.";
+      msg.classList.add('is-error');
+      btn.disabled = false;
+      btn.innerHTML = originalBtnHTML;
+    } catch (err) {
+      msg.textContent = "Couldn't reach the server. Check your connection and try again.";
+      msg.classList.add('is-error');
+      btn.disabled = false;
+      btn.innerHTML = originalBtnHTML;
+    }
   });
 }
 
