@@ -41,7 +41,7 @@ def _register(client: TestClient, email: str = "10520467@mylife.unisa.ac.za") ->
         json={
             "name": "Test Student",
             "email": email,
-            "password": "correct-horse-battery-staple",
+            "password": "correct-horse-battery-staple-1",
             "hours_per_day": 2,
             "days_per_week": 5,
         },
