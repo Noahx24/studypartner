@@ -364,6 +364,110 @@ def revoke_user_tokens(user_id: str, at_epoch_seconds: int) -> None:
         )
 
 
+def delete_user_cascade(user_id: str) -> dict:
+    """Hard-delete a user and every row they touch.
+
+    Used by GDPR / POPIA right-to-deletion (DELETE /users/me) and by
+    App Store guideline 5.1.1(v). Returns counts for the deletion
+    receipt; the user will never see this directly but it's useful
+    for audit logs.
+
+    Order matters: leaf tables first (those that reference modules or
+    learning_units), then modules, then user-scoped tables, then the
+    user row itself. SQLite has no FK cascades wired here, so we walk
+    it manually. Upload files on disk are removed before their DB rows
+    so a half-completed delete doesn't leave dangling blobs.
+    """
+    counts: dict[str, int] = {}
+    with get_connection() as conn:
+        module_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM modules WHERE user_id = ?", (user_id,)
+        ).fetchall()]
+        learning_unit_ids: list[str] = []
+        subtopic_ids: list[str] = []
+        if module_ids:
+            placeholders = ",".join("?" for _ in module_ids)
+            learning_unit_ids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM learning_units WHERE module_id IN ({placeholders})",
+                module_ids,
+            ).fetchall()]
+            if learning_unit_ids:
+                lu_placeholders = ",".join("?" for _ in learning_unit_ids)
+                subtopic_ids = [r["id"] for r in conn.execute(
+                    f"SELECT id FROM subtopics WHERE learning_unit_id IN ({lu_placeholders})",
+                    learning_unit_ids,
+                ).fetchall()]
+
+        # Files on disk for this user's uploads. Best-effort: missing
+        # files don't abort the delete.
+        for row in conn.execute(
+            "SELECT filepath FROM uploads WHERE user_id = ?", (user_id,)
+        ).fetchall():
+            try:
+                Path(row["filepath"]).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        # ai_artifacts is keyed by (scope, ref_id) where ref_id is a
+        # subtopic_id or learning_unit_id. Wipe both halves.
+        if subtopic_ids:
+            sub_ph = ",".join("?" for _ in subtopic_ids)
+            cur = conn.execute(
+                f"DELETE FROM ai_artifacts WHERE ref_id IN ({sub_ph})",
+                subtopic_ids,
+            )
+            counts["ai_artifacts_subtopic"] = cur.rowcount
+        if learning_unit_ids:
+            lu_ph = ",".join("?" for _ in learning_unit_ids)
+            cur = conn.execute(
+                f"DELETE FROM ai_artifacts WHERE ref_id IN ({lu_ph})",
+                learning_unit_ids,
+            )
+            counts["ai_artifacts_lu"] = cur.rowcount
+
+        if subtopic_ids:
+            sub_ph = ",".join("?" for _ in subtopic_ids)
+            cur = conn.execute(
+                f"DELETE FROM subtopics WHERE id IN ({sub_ph})", subtopic_ids
+            )
+            counts["subtopics"] = cur.rowcount
+        if learning_unit_ids:
+            lu_ph = ",".join("?" for _ in learning_unit_ids)
+            cur = conn.execute(
+                f"DELETE FROM learning_units WHERE id IN ({lu_ph})",
+                learning_unit_ids,
+            )
+            counts["learning_units"] = cur.rowcount
+
+        if module_ids:
+            mod_ph = ",".join("?" for _ in module_ids)
+            for table in ("assessments", "moodle_resources", "topics", "study_units"):
+                cur = conn.execute(
+                    f"DELETE FROM {table} WHERE module_id IN ({mod_ph})", module_ids
+                )
+                counts[table] = cur.rowcount
+
+        for table in (
+            "session_feedback",
+            "sessions",
+            "study_packs",
+            "user_selections",
+            "parsing_feedback",
+            "sync_log",
+            "uploads",
+            "modules",
+            "moodle_accounts",
+            "moodle_launch_passports",
+        ):
+            cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+            counts[table] = cur.rowcount
+
+        cur = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        counts["users"] = cur.rowcount
+
+    return counts
+
+
 def update_user_multiplier(user_id: str, multiplier: float, feedback_samples: int) -> None:
     with get_connection() as conn:
         conn.execute(
