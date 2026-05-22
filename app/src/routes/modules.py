@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.src.models import Assessment, Module, ModuleType, User
 from app.src.models.services.ingestion_service import upload_and_ingest
-from app.src.utils.auth import get_current_user
+from app.src.utils.auth import ensure_module_owned, get_current_user
 from app.storage import (
     add_assessment,
     add_module,
@@ -124,6 +124,7 @@ def module_content_endpoint(
     module_id: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    ensure_module_owned(module_id, current_user)
     return get_module_content(module_id)
 
 
@@ -132,6 +133,7 @@ def module_units_endpoint(
     module_id: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    ensure_module_owned(module_id, current_user)
     return get_module_study_units(module_id)
 
 
@@ -140,6 +142,7 @@ def module_structure_endpoint(
     module_id: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    ensure_module_owned(module_id, current_user)
     lus = get_learning_units_for_module(module_id)
     return {
         "module_id": module_id,
