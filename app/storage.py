@@ -271,6 +271,9 @@ def init_db() -> None:
         _ensure_column(conn, "assessments", "status", "TEXT NOT NULL DEFAULT 'open'")
         _ensure_column(conn, "assessments", "moodle_id", "TEXT")
         _ensure_column(conn, "users", "password_hash", "TEXT")
+        # Unix epoch seconds. Tokens with `iat` < this value are rejected
+        # in verify_token. Bumped by /users/logout. NULL = never revoked.
+        _ensure_column(conn, "users", "tokens_invalidated_at", "INTEGER")
         _ensure_column(conn, "moodle_resources", "included_in_ai", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "moodle_resources", "ingested_at", "TEXT")
         _ensure_column(conn, "moodle_resources", "filename", "TEXT")
@@ -338,6 +341,27 @@ def get_user_multiplier(user_id: str) -> tuple[float, int]:
     if not row:
         return 1.0, 0
     return float(row["pace_multiplier"]), int(row["feedback_samples"])
+
+
+def get_tokens_invalidated_at(user_id: str) -> int | None:
+    """Unix epoch seconds before which JWTs for this user are invalid.
+    None means never revoked. Read on every authenticated request."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT tokens_invalidated_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row or row["tokens_invalidated_at"] is None:
+        return None
+    return int(row["tokens_invalidated_at"])
+
+
+def revoke_user_tokens(user_id: str, at_epoch_seconds: int) -> None:
+    """Mark all JWTs issued before `at_epoch_seconds` as invalid."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET tokens_invalidated_at = ? WHERE id = ?",
+            (at_epoch_seconds, user_id),
+        )
 
 
 def update_user_multiplier(user_id: str, multiplier: float, feedback_samples: int) -> None:
