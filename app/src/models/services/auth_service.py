@@ -10,7 +10,25 @@ import secrets
 
 
 SECRET = os.getenv("STUDYPARTNER_SECRET", "dev-secret-change-me")
+_ENV = os.getenv("STUDYPARTNER_ENV", "development").lower()
 _PBKDF2_ITERATIONS = 260_000  # OWASP 2023 recommendation for SHA-256
+
+# Fail closed in production: the dev default or a too-short secret means
+# any attacker who reads the code can forge JWTs. Tests / local dev keep
+# working because STUDYPARTNER_ENV is "development" by default.
+if _ENV == "production":
+    if not SECRET or SECRET == "dev-secret-change-me":
+        raise RuntimeError(
+            "STUDYPARTNER_SECRET is the dev default in production. Refusing to "
+            "boot. Generate a strong value with `python -c \"import secrets; "
+            "print(secrets.token_urlsafe(48))\"` and export it."
+        )
+    if len(SECRET) < 32:
+        raise RuntimeError(
+            f"STUDYPARTNER_SECRET is too short for production ({len(SECRET)} "
+            "chars, need >= 32). Generate one with "
+            "`python -c \"import secrets; print(secrets.token_urlsafe(48))\"`."
+        )
 
 
 def hash_password(password: str) -> str:
