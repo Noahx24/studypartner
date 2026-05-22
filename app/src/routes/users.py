@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+import hashlib
 import logging
+import os
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -9,8 +13,17 @@ from pydantic import BaseModel, Field
 from app.src.models import Pace, User
 from app.src.models.services.auth_service import create_token, hash_password, verify_password
 from app.src.utils.auth import get_current_user
+from app.src.utils.mailer import send_email
 from app.src.utils.ratelimit import limiter
-from app.storage import create_user, get_user, get_user_by_email
+from app.src.utils.time import utcnow_iso
+from app.storage import (
+    consume_password_reset_token,
+    create_user,
+    get_user,
+    get_user_by_email,
+    save_password_reset_token,
+    update_password_hash,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -70,6 +83,25 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=32, max_length=128)
+    new_password: str = Field(..., min_length=12, max_length=128)
+
+
+_PASSWORD_RESET_TTL = timedelta(minutes=30)
+
+
+def _hash_reset_token(token: str) -> str:
+    """Token stored at-rest is SHA-256 of the user-facing token. The
+    plain token only exists in the email; a DB leak doesn't grant
+    password resets."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 @router.post("/register")
 @limiter.limit("5/hour")
 def register_endpoint(request: Request, body: RegisterRequest) -> dict:
@@ -112,6 +144,65 @@ def login_endpoint(request: Request, body: LoginRequest) -> dict:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_token(user.id)
     return {"token": token, "user_id": user.id}
+
+
+@router.post("/password/forgot")
+@limiter.limit("3/hour")
+def forgot_password_endpoint(request: Request, body: ForgotPasswordRequest) -> dict:
+    """Start the password-reset flow.
+
+    Returns 200 regardless of whether the email exists, to prevent
+    email enumeration. If the email does exist, a short-lived reset
+    token is emailed to the user (via the configured mailer).
+    """
+    user = get_user_by_email(body.email)
+    if user:
+        token = secrets.token_urlsafe(32)
+        token_hash = _hash_reset_token(token)
+        now = datetime.now(timezone.utc)
+        save_password_reset_token(
+            token_hash=token_hash,
+            user_id=user.id,
+            created_at_iso=now.isoformat(),
+            expires_at_iso=(now + _PASSWORD_RESET_TTL).isoformat(),
+        )
+        reset_url_template = os.environ.get(
+            "STUDYPARTNER_PASSWORD_RESET_URL",
+            "studypartner://reset-password?token={token}",
+        )
+        send_email(
+            to=user.email,
+            subject="StudyPartner: reset your password",
+            body=(
+                f"Hi {user.name},\n\n"
+                "Someone asked to reset your StudyPartner password. If that was you, "
+                f"open this link within the next 30 minutes:\n\n"
+                f"{reset_url_template.format(token=token)}\n\n"
+                "If it wasn't you, ignore this email; your password stays the same."
+            ),
+        )
+    return {"status": "if the email exists, a reset link was sent"}
+
+
+@router.post("/password/reset")
+@limiter.limit("10/hour")
+def reset_password_endpoint(request: Request, body: ResetPasswordRequest) -> dict:
+    """Complete a password reset using the token emailed in /forgot.
+
+    Single-use, 30-minute TTL. Token format: 32+ url-safe base64 chars
+    (256 bits of entropy). Stored under SHA-256 in the DB.
+    """
+    _validate_password(body.new_password)
+    token_hash = _hash_reset_token(body.token)
+    user_id = consume_password_reset_token(token_hash, utcnow_iso())
+    if not user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Reset token is invalid, expired, or already used.",
+        )
+    update_password_hash(user_id, hash_password(body.new_password))
+    logger.info("Password reset for user %s", user_id)
+    return {"status": "password updated", "user_id": user_id}
 
 
 @router.get("/me")

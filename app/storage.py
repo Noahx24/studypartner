@@ -260,6 +260,17 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
+            CREATE INDEX IF NOT EXISTS idx_password_reset_expiry ON password_reset_tokens(expires_at);
+
             CREATE INDEX IF NOT EXISTS idx_parsing_feedback_module ON parsing_feedback(user_id, module_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_subtopics_lu       ON subtopics(learning_unit_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_lu_module          ON learning_units(module_id, ordinal);
@@ -338,6 +349,42 @@ def get_user_multiplier(user_id: str) -> tuple[float, int]:
     if not row:
         return 1.0, 0
     return float(row["pace_multiplier"]), int(row["feedback_samples"])
+
+
+def save_password_reset_token(token_hash: str, user_id: str, created_at_iso: str, expires_at_iso: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO password_reset_tokens (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token_hash, user_id, created_at_iso, expires_at_iso),
+        )
+
+
+def consume_password_reset_token(token_hash: str, now_iso: str) -> str | None:
+    """Atomic single-use: returns the user_id if the token is fresh and
+    unused, marks it consumed in the same transaction. Returns None
+    for unknown / expired / already-used tokens."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT user_id, expires_at, consumed_at FROM password_reset_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        if not row:
+            return None
+        if row["consumed_at"] is not None or row["expires_at"] < now_iso:
+            return None
+        conn.execute(
+            "UPDATE password_reset_tokens SET consumed_at = ? WHERE token_hash = ?",
+            (now_iso, token_hash),
+        )
+        return row["user_id"]
+
+
+def update_password_hash(user_id: str, password_hash: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash, user_id),
+        )
 
 
 def update_user_multiplier(user_id: str, multiplier: float, feedback_samples: int) -> None:
