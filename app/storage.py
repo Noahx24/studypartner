@@ -260,6 +260,15 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS ai_call_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ai_call_log_user_time ON ai_call_log(user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_parsing_feedback_module ON parsing_feedback(user_id, module_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_subtopics_lu       ON subtopics(learning_unit_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_lu_module          ON learning_units(module_id, ordinal);
@@ -364,6 +373,26 @@ def revoke_user_tokens(user_id: str, at_epoch_seconds: int) -> None:
         )
 
 
+def log_ai_call(user_id: str, scope: str, model: str) -> None:
+    """Record one billable LLM call against a user's quota. Called from
+    AIService only on cache miss — cache hits are free."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO ai_call_log (user_id, scope, model, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, scope, model, utcnow_iso()),
+        )
+
+
+def count_ai_calls_since(user_id: str, since_iso: str) -> int:
+    """How many billable AI calls this user has made since `since_iso`."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM ai_call_log WHERE user_id = ? AND created_at >= ?",
+            (user_id, since_iso),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
 def delete_user_cascade(user_id: str) -> dict:
     """Hard-delete a user and every row they touch.
 
@@ -458,6 +487,7 @@ def delete_user_cascade(user_id: str) -> dict:
             "modules",
             "moodle_accounts",
             "moodle_launch_passports",
+            "ai_call_log",
         ):
             cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
             counts[table] = cur.rowcount
