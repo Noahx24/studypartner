@@ -12,7 +12,7 @@
 Backends are picked via STUDYPARTNER_LLM_BACKEND:
   - unset / "stub"  → deterministic templates
   - "ollama"        → local Ollama daemon (default for `make dev`)
-  - "anthropic"     → placeholder (not wired yet)
+  - "anthropic"     → Anthropic Claude API (claude-opus-4-7 by default)
 """
 from __future__ import annotations
 
@@ -151,9 +151,20 @@ def _top_keywords(text: str, n: int) -> list[str]:
     return [w for w, _ in sorted(freq.items(), key=lambda x: -x[1])[:n]]
 
 
-class OllamaUnavailable(Exception):
-    """Raised when Ollama is configured but unreachable / errored. Callers
-    decide whether to fall back to the stub or surface the error."""
+class LLMBackendUnavailable(Exception):
+    """Per-request LLM failure. Callers fall back to the stub LLM and tag
+    the artifact with the stub's model so the next request retries the
+    real backend."""
+
+
+class OllamaUnavailable(LLMBackendUnavailable):
+    """Raised when Ollama is configured but unreachable / errored."""
+
+
+class AnthropicUnavailable(LLMBackendUnavailable):
+    """Raised when the Anthropic API call fails (network, 5xx, rate
+    limit, etc.). Init-time misconfiguration (missing key, package not
+    installed) is handled in `_build_llm` instead."""
 
 
 class _OllamaLLM:
@@ -222,6 +233,69 @@ class _OllamaLLM:
         return payload.get("response", "")
 
 
+class _AnthropicLLM:
+    """Anthropic Claude backend.
+
+    Default model is claude-opus-4-7 (latest Opus). Override with
+    ANTHROPIC_MODEL — useful for choosing Sonnet 4.6 / Haiku 4.5 on
+    cost-sensitive workloads.
+
+    The protocol returns JSON-shaped strings; we don't use
+    `output_config.format` because the schema varies per call (summary
+    vs subtopic_quiz vs topic_quiz) and the existing prompts already
+    instruct STRICT JSON output. `_safe_parse_json` downstream is the
+    single source of truth for parse-or-fallback.
+
+    No prompt caching: the per-call system prompt is well below Opus
+    4.7's 4096-token caching minimum, and the user prompt (the actual
+    study material) is unique per call. The bulk of repeat-call
+    economy comes from AIService's own artifact cache, not the API
+    prompt cache.
+
+    Sampling parameters are deliberately omitted — Opus 4.7 removed
+    `temperature` / `top_p` / `top_k` (returns 400 if sent).
+    """
+
+    _SYSTEM = (
+        "You are a study material analysis assistant for distance-learning "
+        "students. Respond with ONLY a valid JSON object matching the schema "
+        "described in the user prompt. No markdown fences, no preamble, no "
+        "trailing commentary."
+    )
+
+    def __init__(self) -> None:
+        try:
+            import anthropic  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise RuntimeError(
+                "anthropic package not installed. Run "
+                '`pip install -e "app/.[ai]"` to enable the Anthropic backend.'
+            ) from exc
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY is not set")
+        self._anthropic = anthropic
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
+
+    def __call__(self, prompt: str, max_tokens: int) -> str:
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                system=self._SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except self._anthropic.APIError as exc:
+            raise AnthropicUnavailable(f"Anthropic request failed: {exc}") from exc
+
+        # Concatenate text blocks; ignore thinking blocks (empty by
+        # default on Opus 4.7 since adaptive thinking isn't enabled
+        # here).
+        chunks = [b.text for b in response.content if getattr(b, "type", None) == "text"]
+        return "".join(chunks).strip()
+
+
 def _build_llm() -> tuple[LLMCall, str]:
     """Return (caller, model_name).
 
@@ -230,7 +304,11 @@ def _build_llm() -> tuple[LLMCall, str]:
                        network failure we fall back to the stub so the
                        app still runs; per-request failures bubble up
                        through OllamaUnavailable for the caller to handle.
-      - "anthropic"  → not wired yet; placeholder still defers to stub.
+      - "anthropic"  → _AnthropicLLM (Claude API). Requires
+                       ANTHROPIC_API_KEY and the `anthropic` package.
+                       Init-time failure (missing key, package not
+                       installed) falls back to the stub with a warning.
+                       Per-request failures surface as AnthropicUnavailable.
       - anything else → deterministic stub.
     """
     backend = os.environ.get("STUDYPARTNER_LLM_BACKEND", "").lower()
@@ -239,10 +317,16 @@ def _build_llm() -> tuple[LLMCall, str]:
         client = _OllamaLLM()
         return client, f"ollama:{client.model}"
 
-    if backend == "anthropic" and os.environ.get("ANTHROPIC_API_KEY"):
-        # Placeholder for real backend. Wire anthropic.messages.create here.
-        stub = _StubLLM()
-        return stub, "anthropic-wired-but-stubbed"
+    if backend == "anthropic":
+        try:
+            anthropic_client = _AnthropicLLM()
+        except RuntimeError as exc:
+            logger.warning(
+                "Anthropic backend unavailable at init (%s); falling back to stub", exc
+            )
+            stub = _StubLLM()
+            return stub, stub.model
+        return anthropic_client, f"anthropic:{anthropic_client.model}"
 
     stub = _StubLLM()
     return stub, stub.model
@@ -375,7 +459,7 @@ class AIService:
         model_used = active_model
         try:
             raw = self.llm(prompt, max_tokens)  # type: ignore[misc]
-        except OllamaUnavailable as exc:
+        except LLMBackendUnavailable as exc:
             logger.warning("Falling back to stub LLM: %s", exc)
             stub = _StubLLM()
             raw = stub(prompt, max_tokens)
