@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.src.models import Pace, User
 from app.src.models.services.auth_service import create_token, hash_password, verify_password
 from app.src.utils.auth import get_current_user
+from app.src.utils.ratelimit import limiter
 from app.storage import create_user, get_user, get_user_by_email
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/register")
-def register_endpoint(body: RegisterRequest) -> dict:
+@limiter.limit("5/hour")
+def register_endpoint(request: Request, body: RegisterRequest) -> dict:
     """Create a new account. Returns a JWT on success."""
     existing = get_user_by_email(body.email)
     if existing:
@@ -55,7 +57,8 @@ def register_endpoint(body: RegisterRequest) -> dict:
 
 
 @router.post("/login")
-def login_endpoint(body: LoginRequest) -> dict:
+@limiter.limit("10/minute")
+def login_endpoint(request: Request, body: LoginRequest) -> dict:
     """Authenticate with email + password. Returns a JWT on success."""
     user = get_user_by_email(body.email)
     if not user or not user.password_hash or not verify_password(body.password, user.password_hash):

@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.src.models import Assessment, Module, ModuleType, User
 from app.src.models.services.ingestion_service import upload_and_ingest
 from app.src.utils.auth import ensure_module_owned, get_current_user
+from app.src.utils.ratelimit import limiter
 from app.storage import (
     add_assessment,
     add_module,
@@ -78,7 +79,9 @@ def add_assessment_endpoint(
 
 
 @router.post("/upload")
+@limiter.limit("10/minute")
 async def upload_content_endpoint(
+    request: Request,
     user_id: str = Form(...),
     module_id: str = Form(...),
     module_name: str = Form(...),

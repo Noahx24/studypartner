@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.src.models import User
@@ -15,6 +15,7 @@ from app.src.models.services.moodle_service import (
     sync,
 )
 from app.src.utils.auth import get_current_user
+from app.src.utils.ratelimit import limiter
 from app.storage import (
     list_moodle_resources_with_selection,
     set_moodle_resources_included,
@@ -64,7 +65,9 @@ class MaterialsSelectRequest(BaseModel):
 # ---- Mobile-launch flow (no manual token paste) ----
 
 @router.post("/launch")
+@limiter.limit("30/hour")
 def launch_endpoint(
+    request: Request,
     body: LaunchStartRequest,
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -99,7 +102,8 @@ def launch_callback_endpoint(body: LaunchCallbackRequest) -> dict:
 
 
 @router.post("/sync")
-def sync_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+@limiter.limit("6/minute")
+def sync_endpoint(request: Request, current_user: User = Depends(get_current_user)) -> dict:
     """Pull courses → modules, assignments → assessments, and resource
     metadata. Idempotent and metadata-only — no file bytes downloaded."""
     try:
@@ -140,7 +144,8 @@ def materials_select_endpoint(
 
 
 @router.post("/materials/ingest")
-def materials_ingest_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+@limiter.limit("2/minute")
+def materials_ingest_endpoint(request: Request, current_user: User = Depends(get_current_user)) -> dict:
     """Download bytes + run AI ingestion for everything currently ticked.
     Idempotent — already-ingested resources are skipped."""
     try:
