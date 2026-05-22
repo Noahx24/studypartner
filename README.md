@@ -31,25 +31,35 @@ student to paste a token manually.
 
 ## Connecting Moodle (mobile-launch flow)
 
+This integration uses Moodle's `tool_mobile/launch.php`, the same
+handshake the official Moodle Mobile app uses. The flow only completes
+end-to-end inside a native shell (Capacitor) that registers the
+`studypartner://` URL scheme with the OS. Moodle core does **not**
+accept `https://` callbacks here: `tool_mobile` enforces the RFC 3986
+scheme grammar (letters/digits/`.`/`+`/`-`) on the `urlscheme`
+parameter and rejects anything else with *"Invalid parameter: the value
+of urlscheme isn't valid"*.
+
 ```
-1. Student clicks "Fetch from myModules" in StudyPartner
-2. Frontend  → POST /moodle/launch { urlscheme: "https://app/moodle/callback?" }
+1. Student taps "Fetch from myModules" inside the StudyPartner app
+2. Frontend  → POST /moodle/launch { urlscheme: "studypartner" }
    Backend   → mints a single-use passport (10-min TTL, server-side)
               → returns
                 <MOODLE>/admin/tool/mobile/launch.php
                   ?service=moodle_mobile_app
                   &passport=<random>
-                  &urlscheme=https://app/moodle/callback?
-3. Frontend stashes the passport in localStorage and navigates the
-   browser to launch_url.
+                  &urlscheme=studypartner
+3. Frontend stashes the passport in localStorage and opens the launch
+   URL in the system browser (Capacitor's @capacitor/browser plugin).
 4. Moodle sees the user isn't signed in → redirects to the school's
-   Microsoft tenant.
-5. Microsoft authenticates the student → asserts identity back to Moodle.
-6. Moodle creates a WS token for that user, redirects to:
-        https://app/moodle/callback?token=<base64-blob>
-7. The /moodle/callback page in StudyPartner reads `token` from the
-   URL, reads `passport` from localStorage, POSTs both to
-   /moodle/launch/callback.
+   SSO tenant (Microsoft, SAML, OIDC, depending on the institution).
+5. SSO authenticates the student → asserts identity back to Moodle.
+6. Moodle mints a WS token for that user, redirects to:
+        studypartner://token=<base64-blob>
+7. The OS routes the custom-scheme URL to the StudyPartner native app.
+   Capacitor's App.appUrlOpen listener fires; the deep-link handler
+   reads `token` from the URL, reads `passport` from localStorage,
+   POSTs both to /moodle/launch/callback.
 8. Backend:
         - claims the passport (single-use; CSRF guard)
         - decodes blob → <signature>:::<token>:::<privatetoken>
@@ -60,18 +70,79 @@ student to paste a token manually.
    materials picker.
 ```
 
-The blob format and the signed-passport handshake are exactly what
-Moodle's official mobile app uses — no scraping, no cookie reuse, no
+The blob format and signed-passport handshake are exactly what
+Moodle's official mobile app uses; no scraping, no cookie reuse, no
 manual paste.
 
-### Required Moodle config
+### Why a native shell is mandatory
 
-UniSA's Moodle (or any Moodle running `tool_mobile`) needs to accept
-the `urlscheme` we send. For an `https://` callback, the site admin
-must allow web-app launches. If the site rejects our callback URL the
-launch fails — **there is no manual-paste fallback** by design. To
-guarantee acceptance, wrap StudyPartner in Capacitor and use a custom
-`studypartner://` scheme.
+The redirect Moodle issues at step 6 is `studypartner://token=...`,
+which only an OS-registered URL-scheme handler can catch. A pure-web
+build of StudyPartner cannot receive that redirect: the browser
+attempts to open the custom scheme and, finding no handler, fails. The
+Capacitor wrapper is what registers the scheme; without it the launch
+flow can't complete. There is no manual-paste fallback, by design.
+
+### Building the native shell
+
+Capacitor 6 is wired into `frontend/`. The runtime listener and launch
+helper are already in the code:
+
+- `frontend/src/lib/useMoodleDeepLink.js` — listens for
+  `App.appUrlOpen`, parses `studypartner://token=...`, POSTs the token
+  + passport to `/moodle/launch/callback`.
+- `frontend/src/components/modules/FetchFromMyModulesButton.jsx` — on
+  native, opens the Moodle launch URL via `@capacitor/browser` so SSO
+  cookies live in the system browser; on web, falls back to a plain
+  redirect (which can't complete, but at least surfaces the failure).
+
+To actually build an installable app, generate the native projects
+locally:
+
+```bash
+cd frontend
+npm install
+npm run build
+npx cap add ios
+npx cap add android
+npx cap sync
+```
+
+Then register the `studypartner` URL scheme so the OS routes the
+redirect back into the app.
+
+**iOS** — open `ios/App/App/Info.plist` (in Xcode or a text editor)
+and add:
+
+```xml
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleURLName</key>
+    <string>app.studypartner.client</string>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <string>studypartner</string>
+    </array>
+  </dict>
+</array>
+```
+
+**Android** — open `android/app/src/main/AndroidManifest.xml`,
+find the main `<activity>` block, and add an intent filter:
+
+```xml
+<intent-filter android:autoVerify="false">
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="studypartner" />
+</intent-filter>
+```
+
+Re-run `npx cap sync` after the manifest edits. From there:
+`npx cap open ios` to build through Xcode, `npx cap open android` to
+build through Android Studio.
 
 ### Required env var
 
@@ -79,7 +150,7 @@ guarantee acceptance, wrap StudyPartner in Capacitor and use a custom
 export STUDYPARTNER_MOODLE_BASE_URL=https://mymodules.dtls.unisa.ac.za
 ```
 
-The frontend doesn't need to know the URL — the backend resolves it.
+The frontend doesn't need to know the URL; the backend resolves it.
 
 ## Selecting which materials feed the AI
 
@@ -357,16 +428,21 @@ pytest -q
 
 ## Threat model notes
 
-- **Moodle WS tokens** are stored under a base64 envelope today —
-  replace `encrypt_token` / `decrypt_token` in `moodle_service.py`
-  with Fernet (cryptography package) before going to production.
+- **Moodle WS tokens** are encrypted at rest with Fernet (AES-128-CBC
+  + HMAC, via the `cryptography` package). The key is read from
+  `STUDYPARTNER_FERNET_KEY`; missing/malformed key fails immediately.
+  Generate one with `python -m app.src.utils.crypto generate-key` and
+  export before booting. Key rotation requires re-encrypting existing
+  rows; without that, affected users must reconnect their Moodle.
 - **Launch passports** are single-use, server-side, 10-minute TTL,
   and bound to the StudyPartner user that initiated the launch. The
   signature on the returned blob is verified against the Moodle
   siteid to detect forgery.
-- **JWT** is HMAC-SHA256-signed with `STUDYPARTNER_SECRET` — change
-  this from `dev-secret-change-me` in production. JWTs are stateless;
-  there's no server-side revocation table yet.
+- **JWT** is HMAC-SHA256-signed with `STUDYPARTNER_SECRET`. When
+  `STUDYPARTNER_ENV=production` the boot is gated: a missing,
+  default, or short secret refuses to start. Pick a long random
+  value (`python -c "import secrets; print(secrets.token_urlsafe(48))"`).
+  JWTs are stateless; there is no server-side revocation table yet.
 - **Material selection writes** are scoped to the current user via
   `WHERE module_id IN (SELECT id FROM modules WHERE user_id = ?)` —
   a stolen session can't flip another user's resources.

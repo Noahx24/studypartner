@@ -7,9 +7,10 @@
 - Sync fetches courses → modules, assignments → assessments, and
   resource METADATA only — file bytes are pulled later, only for
   resources the user has flagged for AI processing.
-- Stored tokens are wrapped in a base64 envelope today; swap
-  `encrypt_token` / `decrypt_token` for Fernet (cryptography package)
-  before production.
+- Stored tokens are encrypted at rest with Fernet (AES-128-CBC + HMAC,
+  via the `cryptography` package). The key is read from
+  STUDYPARTNER_FERNET_KEY at first use; missing key raises immediately.
+  Generate one with: `python -m app.src.utils.crypto generate-key`.
 """
 from __future__ import annotations
 
@@ -19,11 +20,14 @@ from datetime import date, datetime, timedelta
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 from typing import Any
 import urllib.parse
 import urllib.request
+
+from cryptography.fernet import Fernet, InvalidToken
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +59,53 @@ from app.storage import (
 LAUNCH_PASSPORT_TTL = timedelta(minutes=10)
 LAUNCH_SERVICE = "moodle_mobile_app"
 
+# RFC 3986 URI-scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+# Moodle's tool_mobile/launch.php enforces exactly this on the `urlscheme`
+# parameter and rejects anything else (including `https://...` URLs) with
+# "Invalid parameter: the value of urlscheme isn't valid". We validate
+# here so the caller gets a clean error before we round-trip through Moodle.
+URLSCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9.+\-]*$")
 
-# ---- Token envelope (swap for Fernet in production) ----
+
+# ---- Token encryption (Fernet at rest) ----
+
+_FERNET: Fernet | None = None
+
+
+def _fernet() -> Fernet:
+    """Lazy-init the Fernet cipher. Fails clearly if the key is missing."""
+    global _FERNET
+    if _FERNET is None:
+        key = os.environ.get("STUDYPARTNER_FERNET_KEY")
+        if not key:
+            raise RuntimeError(
+                "STUDYPARTNER_FERNET_KEY is not set. Generate one with "
+                "`python -m app.src.utils.crypto generate-key` and export it "
+                "before storing or reading Moodle WS tokens."
+            )
+        try:
+            _FERNET = Fernet(key.encode("utf-8") if isinstance(key, str) else key)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "STUDYPARTNER_FERNET_KEY is malformed. It must be a 32-byte "
+                "url-safe base64 string (44 chars, ending with '=')."
+            ) from exc
+    return _FERNET
+
 
 def encrypt_token(token: str) -> bytes:
-    return base64.b64encode(token.encode("utf-8"))
+    return _fernet().encrypt(token.encode("utf-8"))
 
 
 def decrypt_token(blob: bytes) -> str:
-    return base64.b64decode(blob).decode("utf-8")
+    try:
+        return _fernet().decrypt(blob).decode("utf-8")
+    except InvalidToken as exc:
+        raise RuntimeError(
+            "Stored Moodle WS token could not be decrypted. Either the key "
+            "rotated, or this row predates the Fernet migration. Affected "
+            "user must reconnect their Moodle account."
+        ) from exc
 
 
 def get_account(user_id: str) -> MoodleAccount | None:
@@ -136,13 +178,20 @@ def build_launch_url(user_id: str, base_url: str, urlscheme: str) -> dict:
 
     Returns the URL the browser should navigate to plus the passport we'll
     expect back. The passport is stored server-side keyed by user_id and
-    expires in 10 minutes — that's our CSRF guard.
+    expires in 10 minutes; that is our CSRF guard.
 
-    `urlscheme` is where Moodle should redirect once SSO completes. For a
-    web app pass `https://app.example.com/moodle/callback?` (note the
-    trailing `?` — Moodle appends `token=…` directly to the string).
-    For a native app, pass a custom scheme like `studypartner://`.
+    `urlscheme` must be a bare URI-scheme name like ``studypartner``. Moodle
+    builds the redirect target as ``<urlscheme>://token=<blob>``, so the
+    caller's job is to ship a native app (Capacitor, etc.) that registers
+    the same scheme at the OS level so the redirect lands back in-app. A
+    full ``https://...`` URL is rejected by Moodle's tool_mobile (RFC 3986
+    scheme grammar); we validate here to fail fast with a clear error.
     """
+    if not URLSCHEME_RE.match(urlscheme):
+        raise MoodleError(
+            "urlscheme must be a bare URI-scheme name (letters, digits, '.', '+', '-'; "
+            "first char a letter). Moodle rejects full URLs here."
+        )
     purge_expired_launch_passports(utcnow_aware())
     passport = secrets.token_urlsafe(16)
     now = utcnow_aware()

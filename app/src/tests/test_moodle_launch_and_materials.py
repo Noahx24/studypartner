@@ -59,7 +59,7 @@ def test_launch_returns_url_and_passport():
         "/moodle/launch",
         headers={"Authorization": f"Bearer {token}"},
         json={
-            "urlscheme": "https://app.example.com/moodle/callback?",
+            "urlscheme": "studypartner",
             "base_url": "https://lms.unisa.ac.za",
         },
     )
@@ -71,17 +71,18 @@ def test_launch_returns_url_and_passport():
     )
     assert body["passport"] in body["launch_url"]
     assert "service=moodle_mobile_app" in body["launch_url"]
-    assert "urlscheme=https" in body["launch_url"]
+    assert "urlscheme=studypartner" in body["launch_url"]
 
 
-def test_launch_requires_base_url():
+def test_launch_requires_base_url(monkeypatch):
+    monkeypatch.delenv("STUDYPARTNER_MOODLE_BASE_URL", raising=False)
     _fresh_db()
     client = TestClient(app)
     token, _ = _register(client)
     r = client.post(
         "/moodle/launch",
         headers={"Authorization": f"Bearer {token}"},
-        json={"urlscheme": "https://app.example.com/moodle/callback?"},
+        json={"urlscheme": "studypartner"},
     )
     assert r.status_code == 400
 
@@ -91,9 +92,27 @@ def test_launch_unauthenticated():
     client = TestClient(app)
     r = client.post(
         "/moodle/launch",
-        json={"urlscheme": "https://app.example.com/moodle/callback?", "base_url": "https://x"},
+        json={"urlscheme": "studypartner", "base_url": "https://x"},
     )
     assert r.status_code == 401
+
+
+def test_launch_rejects_full_url_as_urlscheme():
+    """Moodle's tool_mobile validates urlscheme as a bare RFC 3986 scheme
+    name. We enforce the same rule at the API layer so callers get a
+    clean 422 instead of round-tripping through Moodle to find out."""
+    _fresh_db()
+    client = TestClient(app)
+    token, _ = _register(client)
+    r = client.post(
+        "/moodle/launch",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "urlscheme": "https://app.example.com/moodle/callback?",
+            "base_url": "https://lms.unisa.ac.za",
+        },
+    )
+    assert r.status_code == 422, r.text
 
 
 def _build_moodle_token_blob(passport: str, siteid: str, ws_token: str) -> str:
@@ -120,7 +139,7 @@ def test_launch_callback_full_round_trip(monkeypatch):
         "/moodle/launch",
         headers={"Authorization": f"Bearer {token}"},
         json={
-            "urlscheme": "https://app.example.com/moodle/callback?",
+            "urlscheme": "studypartner",
             "base_url": "https://lms.unisa.ac.za",
         },
     ).json()
@@ -162,7 +181,7 @@ def test_launch_callback_rejects_replay(monkeypatch):
     start = client.post(
         "/moodle/launch",
         headers={"Authorization": f"Bearer {token}"},
-        json={"urlscheme": "studypartner://", "base_url": "https://x"},
+        json={"urlscheme": "studypartner", "base_url": "https://x"},
     ).json()
     blob = _build_moodle_token_blob(start["passport"], "7", "ws-tok")
     payload = {"passport": start["passport"], "token": blob}
@@ -184,7 +203,7 @@ def test_launch_callback_rejects_signature_mismatch(monkeypatch):
     start = client.post(
         "/moodle/launch",
         headers={"Authorization": f"Bearer {token}"},
-        json={"urlscheme": "studypartner://", "base_url": "https://x"},
+        json={"urlscheme": "studypartner", "base_url": "https://x"},
     ).json()
     # Sign with the WRONG siteid — simulates a forged blob.
     bad_blob = _build_moodle_token_blob(start["passport"], "999", "ws-tok")

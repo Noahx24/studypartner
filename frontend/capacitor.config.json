@@ -1,0 +1,12 @@
+{
+  "appId": "app.studypartner.client",
+  "appName": "StudyPartner",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "ios": {
+    "scheme": "StudyPartner"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
