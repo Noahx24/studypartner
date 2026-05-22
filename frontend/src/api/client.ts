@@ -12,11 +12,12 @@ import type {
 } from '../types';
 import { isoDate, startOfWeek } from '../utils/date';
 
+import { getToken } from '../lib/tokenStore';
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
-const TOKEN_KEY = 'studypartner_token';
 
 function getAuthHeader(): Record<string, string> {
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
