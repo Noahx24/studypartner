@@ -1,0 +1,40 @@
+name: Backend tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/backend-tests.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: app/pyproject.toml
+
+      - name: Install
+        run: pip install -e "app/.[dev,pdf,ai]"
+
+      - name: Generate test Fernet key
+        id: fernet
+        run: |
+          KEY=$(python -m app.src.utils.crypto generate-key)
+          echo "::add-mask::$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        env:
+          STUDYPARTNER_MOODLE_BASE_URL: https://lms.example
+          STUDYPARTNER_SECRET: ci-test-secret-long-enough-to-pass-the-production-gate-check
+          STUDYPARTNER_FERNET_KEY: ${{ steps.fernet.outputs.key }}
+        run: pytest app/src/tests/ -q

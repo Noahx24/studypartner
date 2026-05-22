@@ -59,7 +59,35 @@ class _ManagedConnection:
         return False
 
 
+def _check_database_url() -> None:
+    """Fail-loud guard for the in-progress Postgres migration.
+
+    The full migration of every raw-SQL site in this module to a driver-
+    agnostic interface is non-trivial (1300+ lines of `?` placeholders).
+    Until that lands, setting DATABASE_URL to a Postgres connection
+    string is a configuration mistake — the app would silently run on
+    SQLite, the operator would think they're on Postgres, and the data
+    would land in the wrong place. Raise here instead.
+
+    Tracked work: convert `get_connection()` to dispatch on the URL
+    scheme; convert every `?`-placeholder SQL site to use a parameter
+    style portable between SQLite and Postgres; add Alembic migrations
+    for the schema; provide a one-shot SQLite → Postgres dump/restore
+    script for existing deployments.
+    """
+    import os as _os
+    db_url = _os.environ.get("DATABASE_URL")
+    if db_url and db_url.startswith(("postgres://", "postgresql://", "postgresql+")):
+        raise RuntimeError(
+            "DATABASE_URL points at Postgres but the storage layer is "
+            "still SQLite-only. Unset DATABASE_URL (or use sqlite://) "
+            "until the Postgres migration ships. See app/storage.py "
+            "_check_database_url for tracked work."
+        )
+
+
 def get_connection() -> _ManagedConnection:
+    _check_database_url()
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
