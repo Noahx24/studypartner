@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import logging
 import os
 
 from fastapi import FastAPI
@@ -17,13 +16,16 @@ from app.src.routes.selection import router as selection_router
 from app.src.routes.sync import router as sync_router
 from app.src.routes.units import router as units_router
 from app.src.routes.users import router as users_router
+from app.src.utils.logging_config import RequestIdMiddleware, configure_logging
+from app.src.utils.metrics import attach_counter_middleware, router as observability_router
 from app.src.utils.ratelimit import limiter
 from app.storage import init_db
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+# Must run before any module-level logger.info/error fires so JSON
+# mode (production) doesn't lose startup output to the basicConfig
+# default. configure_logging picks json vs text from
+# STUDYPARTNER_LOG_FORMAT (default text).
+configure_logging()
 
 
 def _parse_origins() -> list[str]:
@@ -54,13 +56,18 @@ app = FastAPI(title="StudyPartner Backend", version="2.0.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Middleware order: innermost runs first. Counter wraps everything so
+# even rate-limited requests are counted; RequestId is outermost so
+# the X-Request-ID is set before any handler logs. CORS goes between.
+attach_counter_middleware(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Request-ID"],
 )
+app.add_middleware(RequestIdMiddleware)
 
 
 @app.get("/")
@@ -77,6 +84,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(observability_router)
 app.include_router(users_router)
 app.include_router(modules_router)
 app.include_router(units_router)
