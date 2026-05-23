@@ -111,6 +111,34 @@ def test_reset_rejects_weak_new_password(caplog):
     assert r2.status_code == 200
 
 
+def test_reset_rejects_password_containing_email_local_part(caplog):
+    """The reset path must enforce the same email-local-part rule as
+    registration. Without this check, /users/password/reset was a
+    policy-bypass surface where users could set passwords containing
+    their email handle. Regression test for PR #15 review P2.
+    """
+    _fresh_db()
+    client = TestClient(app)
+    # Register with email local-part "alice123" — strong enough to
+    # pass the length-3 minimum the rule uses to skip generic locals.
+    _register(client, email="alice123@x.test")
+
+    with caplog.at_level("INFO"):
+        client.post("/users/password/forgot", json={"email": "alice123@x.test"})
+    token = re.search(
+        r"token=([A-Za-z0-9_\-]+)", " ".join(rec.message for rec in caplog.records)
+    ).group(1)
+
+    r = client.post(
+        "/users/password/reset",
+        # Contains "alice123" — must be rejected even though it passes
+        # length + letter+digit + common-list checks.
+        json={"token": token, "new_password": "alice123-Strong-Pwd!"},
+    )
+    assert r.status_code == 400, r.text
+    assert "email" in r.json()["detail"].lower()
+
+
 def test_reset_token_single_use(caplog):
     _fresh_db()
     client = TestClient(app)

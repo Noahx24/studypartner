@@ -200,6 +200,19 @@ def reset_password_endpoint(request: Request, body: ResetPasswordRequest) -> dic
             status_code=400,
             detail="Reset token is invalid, expired, or already used.",
         )
+    # Apply the same email-local-part rule registration enforces, so
+    # /reset isn't a policy-bypass path. Lookup happens after consume
+    # so a successfully claimed-but-rejected token still gets burned
+    # — defensible from a UX angle (user must request a fresh link)
+    # and avoids leaking info on email-based policy failure.
+    user = get_user(user_id)
+    if user and user.email:
+        local = user.email.split("@", 1)[0].lower()
+        if local and len(local) >= 3 and local in body.new_password.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Password must not contain your email address.",
+            )
     update_password_hash(user_id, hash_password(body.new_password))
     logger.info("Password reset for user %s", user_id)
     return {"status": "password updated", "user_id": user_id}

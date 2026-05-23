@@ -360,23 +360,34 @@ def save_password_reset_token(token_hash: str, user_id: str, created_at_iso: str
 
 
 def consume_password_reset_token(token_hash: str, now_iso: str) -> str | None:
-    """Atomic single-use: returns the user_id if the token is fresh and
-    unused, marks it consumed in the same transaction. Returns None
-    for unknown / expired / already-used tokens."""
+    """Atomic single-use claim. Returns the user_id if the token is
+    fresh + unused + matched in one conditional UPDATE; None otherwise.
+
+    The previous SELECT-then-UPDATE race let two concurrent resets
+    with the same token both see consumed_at=NULL before either wrote.
+    The conditional UPDATE here makes the read + write a single
+    statement: SQLite's rowcount is the canonical "did I win the
+    race?" signal — exactly one caller can flip a given row from
+    consumed_at=NULL to consumed_at=<now>.
+    """
     with get_connection() as conn:
+        cur = conn.execute(
+            """
+            UPDATE password_reset_tokens
+               SET consumed_at = ?
+             WHERE token_hash = ?
+               AND consumed_at IS NULL
+               AND expires_at >= ?
+            """,
+            (now_iso, token_hash, now_iso),
+        )
+        if cur.rowcount != 1:
+            return None
         row = conn.execute(
-            "SELECT user_id, expires_at, consumed_at FROM password_reset_tokens WHERE token_hash = ?",
+            "SELECT user_id FROM password_reset_tokens WHERE token_hash = ?",
             (token_hash,),
         ).fetchone()
-        if not row:
-            return None
-        if row["consumed_at"] is not None or row["expires_at"] < now_iso:
-            return None
-        conn.execute(
-            "UPDATE password_reset_tokens SET consumed_at = ? WHERE token_hash = ?",
-            (now_iso, token_hash),
-        )
-        return row["user_id"]
+        return row["user_id"] if row else None
 
 
 def update_password_hash(user_id: str, password_hash: str) -> None:
