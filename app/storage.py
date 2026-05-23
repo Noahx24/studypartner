@@ -424,8 +424,17 @@ def get_assessment_due_date(module_id: str) -> date:
 
 
 def save_upload(user_id: str, module_id: str, filename: str, content: bytes, raw_text: str, page_count: int | None) -> str:
+    """Persist an upload to disk + DB. The on-disk filename uses a
+    256-bit random token, not a timestamp + user-supplied name —
+    timestamps are guessable, and user filenames could collide or
+    traverse directories. The original name is preserved in the
+    DB row for display purposes.
+    """
+    import secrets as _secrets
+
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-    target = UPLOAD_ROOT / f"{utcnow_aware().strftime('%Y%m%d%H%M%S%f')}_{filename}"
+    suffix = "".join(Path(filename).suffixes)[-12:]  # keep `.tar.gz`-style suffixes but cap length
+    target = UPLOAD_ROOT / f"{_secrets.token_urlsafe(24)}{suffix}"
     target.write_bytes(content)
 
     with get_connection() as conn:
