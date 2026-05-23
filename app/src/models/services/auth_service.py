@@ -93,7 +93,12 @@ def verify_token(token: str) -> str | None:
         # `iat` missing → legacy token; treat as having `iat = now-24h`
         # (safe for the 24h transition window after this change ships).
         iat = int(payload.get("iat", now_epoch - 86_400))
-        if revoked_at is not None and iat < revoked_at:
+        # Use <= so a token minted and revoked in the same Unix second
+        # (e.g. immediately after register) is correctly rejected.
+        # The trade-off: a fresh login that races with a logout in the
+        # same second is also rejected — that's the right behavior,
+        # users re-login in that rare race.
+        if revoked_at is not None and iat <= revoked_at:
             return None
         return user_id
     except Exception:

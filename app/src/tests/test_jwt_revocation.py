@@ -30,22 +30,31 @@ def _register(client):
 
 
 def test_logout_invalidates_existing_token():
+    """Token issued, then revoked in a later second — must be rejected."""
+    _fresh_db()
+    client = TestClient(app)
+    token = _register(client)
+    auth = {"Authorization": f"Bearer {token}"}
+    time.sleep(1.5)
+
+    assert client.get("/users/me", headers=auth).status_code == 200
+    assert client.post("/users/logout", headers=auth).status_code == 200
+    r = client.get("/users/me", headers=auth)
+    assert r.status_code == 401, r.text
+
+
+def test_logout_invalidates_token_in_same_second():
+    """Token issued and revoked in the SAME Unix second must also be
+    rejected — verify_token uses `iat <= revoked_at`, not `<`, so a
+    same-second logout immediately after register/login is honoured.
+    Regression test for the off-by-one CodeX flagged on PR #14."""
     _fresh_db()
     client = TestClient(app)
     token = _register(client)
     auth = {"Authorization": f"Bearer {token}"}
 
-    # Tokens were issued with iat=now. Sleep so the post-logout
-    # invalidated_at strictly exceeds iat.
-    time.sleep(1.5)
-
-    # Token works.
-    assert client.get("/users/me", headers=auth).status_code == 200
-
-    # Log out: must succeed with the current token.
+    # No sleep: the token's iat == now == revoked_at after logout.
     assert client.post("/users/logout", headers=auth).status_code == 200
-
-    # Same token must now be rejected.
     r = client.get("/users/me", headers=auth)
     assert r.status_code == 401, r.text
 
