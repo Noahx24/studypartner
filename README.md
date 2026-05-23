@@ -432,8 +432,29 @@ pytest -q
   + HMAC, via the `cryptography` package). The key is read from
   `STUDYPARTNER_FERNET_KEY`; missing/malformed key fails immediately.
   Generate one with `python -m app.src.utils.crypto generate-key` and
-  export before booting. Key rotation requires re-encrypting existing
-  rows; without that, affected users must reconnect their Moodle.
+  export before booting.
+
+  **Key rotation procedure** (recommended every 90 days, or
+  immediately on key exposure):
+
+  1. Generate the new key, store both old + new in the secrets
+     manager. Set `STUDYPARTNER_FERNET_KEYS_OLD=<old-key>` (comma-
+     separated if more than one) alongside the unchanged
+     `STUDYPARTNER_FERNET_KEY=<new-key>`. The decrypt path should try
+     the current key first, then walk the OLD list.
+  2. Roll the deployment. Existing tokens decrypt under the old key,
+     new tokens encrypt under the new key.
+  3. Background job (one-off): iterate `moodle_accounts`, decrypt with
+     the multi-key chain, re-encrypt with only the new key, UPDATE.
+     Track progress in a column (e.g. `re_encrypted_at`) so a retry
+     doesn't re-walk the whole table.
+  4. Once the background job confirms zero rows still on the old key,
+     remove `STUDYPARTNER_FERNET_KEYS_OLD` from the secrets manager
+     and roll the deployment again to drop the old key from memory.
+
+  Until the multi-key decrypt path lands (tracked as audit-medium
+  followup), rotation forces affected users to reconnect their Moodle
+  — equivalent of dropping the `moodle_accounts` table.
 - **Launch passports** are single-use, server-side, 10-minute TTL,
   and bound to the StudyPartner user that initiated the launch. The
   signature on the returned blob is verified against the Moodle

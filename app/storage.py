@@ -260,6 +260,16 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                response_pack_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_idempotency_expiry ON idempotency_keys(expires_at);
+
             CREATE INDEX IF NOT EXISTS idx_parsing_feedback_module ON parsing_feedback(user_id, module_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_subtopics_lu       ON subtopics(learning_unit_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_lu_module          ON learning_units(module_id, ordinal);
@@ -330,6 +340,32 @@ def get_user_by_email(email: str) -> User | None:
     with get_connection() as conn:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
     return _row_to_user(row) if row else None
+
+
+def get_idempotency_response(user_id: str, key: str, now_iso: str) -> str | None:
+    """Return the pack_id previously minted for this (user, key) pair,
+    or None if no live entry exists. Also reaps expired rows opportunistically."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM idempotency_keys WHERE expires_at < ?", (now_iso,))
+        row = conn.execute(
+            "SELECT response_pack_id FROM idempotency_keys WHERE user_id = ? AND key = ? AND expires_at >= ?",
+            (user_id, key, now_iso),
+        ).fetchone()
+    return row["response_pack_id"] if row else None
+
+
+def save_idempotency_response(
+    user_id: str, key: str, pack_id: str, created_at_iso: str, expires_at_iso: str
+) -> None:
+    """Record the response pack_id for a (user, key) pair. Idempotent
+    write — duplicate INSERT just overwrites, which is fine because
+    duplicates land on the same row."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO idempotency_keys "
+            "(user_id, key, response_pack_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, key, pack_id, created_at_iso, expires_at_iso),
+        )
 
 
 def get_user_multiplier(user_id: str) -> tuple[float, int]:
