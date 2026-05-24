@@ -12,7 +12,7 @@
 Backends are picked via STUDYPARTNER_LLM_BACKEND:
   - unset / "stub"  → deterministic templates
   - "ollama"        → local Ollama daemon (default for `make dev`)
-  - "anthropic"     → Anthropic Claude API (claude-opus-4-7 by default)
+  - "anthropic"     → Anthropic Claude API (claude-haiku-4-5 by default)
 """
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ from app.storage import (
     delete_ai_artifacts_for,
     get_ai_artifact,
     list_recent_parsing_corrections,
+    log_ai_call,
     save_ai_artifact,
 )
 
@@ -236,9 +237,10 @@ class _OllamaLLM:
 class _AnthropicLLM:
     """Anthropic Claude backend.
 
-    Default model is claude-opus-4-7 (latest Opus). Override with
-    ANTHROPIC_MODEL — useful for choosing Sonnet 4.6 / Haiku 4.5 on
-    cost-sensitive workloads.
+    Default model is claude-haiku-4-5 — sufficient quality for the
+    quiz / summary scopes here at roughly 1/30th the Opus 4.7 price.
+    Override with ANTHROPIC_MODEL=claude-sonnet-4-6 or claude-opus-4-7
+    on workloads that need the extra reasoning depth.
 
     The protocol returns JSON-shaped strings; we don't use
     `output_config.format` because the schema varies per call (summary
@@ -276,7 +278,7 @@ class _AnthropicLLM:
             raise RuntimeError("ANTHROPIC_API_KEY is not set")
         self._anthropic = anthropic
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
+        self.model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
 
     def __call__(self, prompt: str, max_tokens: int) -> str:
         try:
@@ -466,6 +468,10 @@ class AIService:
             model_used = stub.model
 
         payload = _safe_parse_json(raw)
+        # Quota log: only billable calls count. Stub is the deterministic
+        # fallback (free); anything else hit a real backend.
+        if user_id and model_used != _StubLLM.model:
+            log_ai_call(user_id, scope, model_used)
         artifact = AIArtifact(
             id=_artifact_id(scope, ref_id, content_hash, prompt_hash, model_used),
             scope=scope,  # type: ignore[arg-type]
