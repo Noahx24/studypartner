@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from app.src.models import User
 from app.src.models.services.study_pack_service import build_pack, new_pack, regenerate_artifact
 from app.src.utils.auth import get_current_user
+from app.src.utils.ratelimit import limiter
 from app.storage import get_pack, list_packs_for_module
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,9 @@ class RegenerateRequest(BaseModel):
 
 
 @router.post("/generate")
+@limiter.limit("5/minute")
 def generate_pack(
+    request: Request,
     body: GeneratePackRequest,
     tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),

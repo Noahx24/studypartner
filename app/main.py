@@ -1,27 +1,13 @@
 from contextlib import asynccontextmanager
 import logging
 import os
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 from app.config import settings
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-app = FastAPI()
-
-@app.get("/")
-def root():
-    return {
-        "backend": settings.llm_backend,
-        "model": settings.ollama_model,
-        "moodle": settings.moodle_base_url,
-    }
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-
 from app.src.routes.ai import router as ai_router
 from app.src.routes.modules import router as modules_router
 from app.src.routes.moodle import router as moodle_router
@@ -31,7 +17,13 @@ from app.src.routes.selection import router as selection_router
 from app.src.routes.sync import router as sync_router
 from app.src.routes.units import router as units_router
 from app.src.routes.users import router as users_router
+from app.src.utils.ratelimit import limiter
 from app.storage import init_db
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 
 def _parse_origins() -> list[str]:
@@ -42,7 +34,13 @@ def _parse_origins() -> list[str]:
     API.
     """
     raw = os.environ.get("STUDYPARTNER_CORS_ORIGINS", "http://localhost:5173")
-    return [o.strip() for o in raw.split(",") if o.strip()]
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if any(o == "*" for o in origins):
+        raise RuntimeError(
+            "STUDYPARTNER_CORS_ORIGINS contains '*', which is incompatible with "
+            "allow_credentials=True. Set an explicit origin allowlist."
+        )
+    return origins
 
 
 @asynccontextmanager
@@ -53,13 +51,25 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="StudyPartner Backend", version="2.0.0", lifespan=lifespan)
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin"],
 )
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {
+        "backend": settings.llm_backend,
+        "model": settings.ollama_model,
+        "moodle": settings.moodle_base_url,
+    }
 
 
 @app.get("/health")

@@ -16,12 +16,11 @@ from pydantic import BaseModel, Field
 
 from app.src.models import LearningUnit, Subtopic, User
 from app.src.models.services.content_analysis_service import estimate_effort
-from app.src.utils.auth import get_current_user
+from app.src.utils.auth import ensure_module_owned as _ensure_module_owned, get_current_user
 from app.storage import (
     delete_learning_unit,
     delete_subtopic,
     get_learning_unit,
-    get_module_owner,
     get_subtopic,
     insert_learning_unit,
     insert_subtopic,
@@ -42,14 +41,6 @@ router = APIRouter(tags=["units"])
 
 def _word_count(text: str) -> int:
     return len(re.findall(r"\w+", text or ""))
-
-
-def _ensure_module_owned(module_id: str, current_user: User) -> None:
-    owner = get_module_owner(module_id)
-    if owner is None:
-        raise HTTPException(status_code=404, detail="Module not found")
-    if owner != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _ensure_unit_owned(unit_id: str, current_user: User) -> LearningUnit:
