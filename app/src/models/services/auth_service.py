@@ -53,9 +53,14 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_token(user_id: str, expires_hours: int = 24) -> str:
+    """Mint a signed JWT-style token. Includes `iat` (issued-at) so
+    verify_token can reject tokens minted before a server-side revocation.
+    """
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
     payload = {
         "user_id": user_id,
-        "exp": int((datetime.now(timezone.utc) + timedelta(hours=expires_hours)).timestamp()),
+        "iat": now_epoch,
+        "exp": now_epoch + expires_hours * 3600,
     }
     raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     signature = hmac.new(SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
@@ -63,6 +68,13 @@ def create_token(user_id: str, expires_hours: int = 24) -> str:
 
 
 def verify_token(token: str) -> str | None:
+    """Return user_id if the token is valid, signed, unexpired, and was
+    issued after the user's last revocation timestamp. None otherwise.
+
+    Imports get_tokens_invalidated_at lazily to avoid a top-level cycle:
+    storage imports models, models imports nothing, but utils/auth used
+    by routes also imports this module.
+    """
     try:
         encoded, signature = token.split(".", 1)
         raw = base64.urlsafe_b64decode(encoded.encode("utf-8"))
@@ -70,8 +82,24 @@ def verify_token(token: str) -> str | None:
         if not hmac.compare_digest(signature, expected):
             return None
         payload = json.loads(raw.decode("utf-8"))
-        if int(payload["exp"]) < int(datetime.now(timezone.utc).timestamp()):
+        now_epoch = int(datetime.now(timezone.utc).timestamp())
+        if int(payload["exp"]) < now_epoch:
             return None
-        return payload["user_id"]
+        user_id = payload["user_id"]
+
+        from app.storage import get_tokens_invalidated_at
+
+        revoked_at = get_tokens_invalidated_at(user_id)
+        # `iat` missing → legacy token; treat as having `iat = now-24h`
+        # (safe for the 24h transition window after this change ships).
+        iat = int(payload.get("iat", now_epoch - 86_400))
+        # Use <= so a token minted and revoked in the same Unix second
+        # (e.g. immediately after register) is correctly rejected.
+        # The trade-off: a fresh login that races with a logout in the
+        # same second is also rejected — that's the right behavior,
+        # users re-login in that rare race.
+        if revoked_at is not None and iat <= revoked_at:
+            return None
+        return user_id
     except Exception:
         return None

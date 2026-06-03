@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.src.models import User
 from app.src.models.services.ai_service import AIService
 from app.src.utils.auth import get_current_user
+from app.src.utils.quota import enforce_ai_quota
 from app.src.utils.ratelimit import limiter
 from app.storage import get_learning_units_for_module, get_selection, get_subtopics_by_ids
 
@@ -34,6 +35,7 @@ def ai_regenerate(
 ) -> dict:
     if body.scope not in _VALID_SCOPES:
         raise HTTPException(status_code=400, detail="Invalid scope")
+    enforce_ai_quota(current_user.id)
     AIService().regenerate(body.scope, body.ref_id)
     return {"status": "cache_cleared", "scope": body.scope, "ref_id": body.ref_id}
 
@@ -54,6 +56,7 @@ def ai_preview(
     if selection.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    enforce_ai_quota(current_user.id)
     svc = AIService()
     try:
         if body.scope == "topic_quiz":

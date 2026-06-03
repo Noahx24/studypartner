@@ -1,0 +1,45 @@
+version: "3.9"
+
+# Local dev: `docker compose up`. Brings up Postgres + the backend.
+# Frontend is run separately with `cd frontend && npm run dev` to get
+# Vite's HMR.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: studypartner
+      POSTGRES_PASSWORD: studypartner-dev
+      POSTGRES_DB: studypartner
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studypartner -d studypartner"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Selected by storage.py when present; falls back to local SQLite.
+      DATABASE_URL: postgresql://studypartner:studypartner-dev@postgres:5432/studypartner
+      STUDYPARTNER_MOODLE_BASE_URL: https://mymodules.dtls.unisa.ac.za
+      STUDYPARTNER_SECRET: dev-secret-do-not-use-in-prod-but-32+-chars-so-the-gate-passes-here
+      STUDYPARTNER_FERNET_KEY: ${STUDYPARTNER_FERNET_KEY}
+      STUDYPARTNER_ENV: development
+      STUDYPARTNER_CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+
+volumes:
+  postgres_data:

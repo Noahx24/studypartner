@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
-const TOKEN_KEY = 'studypartner_token';
+import { clearToken, getToken, loadTokenFromStorage, setToken } from './tokenStore';
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 const AuthContext = createContext(null);
@@ -11,15 +12,29 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+  const logout = useCallback(async () => {
+    // Best-effort server-side revocation. If the network is down we
+    // still clear local state — the token will be rejected next time
+    // the user comes online and tries to authenticate.
+    const token = getToken();
+    if (token) {
+      try {
+        await fetch(`${API_BASE}/users/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // Swallow: local logout still proceeds.
+      }
+    }
+    await clearToken();
     setUser(null);
     setIsAuthenticated(false);
     setAuthError(null);
   }, []);
 
   const checkUserAuth = useCallback(async () => {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = getToken();
     if (!token) {
       setIsAuthenticated(false);
       setUser(null);
@@ -33,7 +48,7 @@ export const AuthProvider = ({ children }) => {
       });
       if (!response.ok) {
         // Token is expired or invalid — clear it
-        localStorage.removeItem(TOKEN_KEY);
+        await clearToken();
         setIsAuthenticated(false);
         setUser(null);
       } else {
@@ -61,7 +76,7 @@ export const AuthProvider = ({ children }) => {
       throw new Error(data.detail || 'Invalid email or password');
     }
     const { token } = await response.json();
-    localStorage.setItem(TOKEN_KEY, token);
+    await setToken(token);
     await checkUserAuth();
   }, [checkUserAuth]);
 
@@ -77,12 +92,13 @@ export const AuthProvider = ({ children }) => {
       throw new Error(data.detail || 'Registration failed');
     }
     const { token } = await response.json();
-    localStorage.setItem(TOKEN_KEY, token);
+    await setToken(token);
     await checkUserAuth();
   }, [checkUserAuth]);
 
   useEffect(() => {
-    checkUserAuth();
+    // Load the persisted token before any sync getToken() reads happen.
+    loadTokenFromStorage().then(checkUserAuth);
   }, [checkUserAuth]);
 
   // Multi-tab consistency: when another tab logs out (or logs in as a
@@ -127,4 +143,4 @@ export const useAuth = () => {
   return context;
 };
 
-export const getStoredToken = () => localStorage.getItem(TOKEN_KEY);
+export const getStoredToken = () => getToken();
