@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import secrets
+import sqlite3
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -117,6 +118,15 @@ def register_endpoint(request: Request, body: RegisterRequest) -> dict:
             status_code=400,
             detail="Password must not contain your email address.",
         )
+    # Reject an unknown pace with a clean 400 instead of letting the
+    # enum's ValueError bubble up as an opaque 500.
+    try:
+        pace = Pace(body.pace)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid pace. Allowed: {', '.join(p.value for p in Pace)}",
+        )
     existing = get_user_by_email(body.email)
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -126,12 +136,17 @@ def register_endpoint(request: Request, body: RegisterRequest) -> dict:
         email=body.email,
         hours_per_day=body.hours_per_day,
         days_per_week=body.days_per_week,
-        pace=Pace(body.pace),
+        pace=pace,
         custom_minutes_per_500_words=body.custom_minutes_per_500_words,
         max_daily_hours=body.max_daily_hours,
         password_hash=hash_password(body.password),
     )
-    create_user(user)
+    try:
+        create_user(user)
+    except sqlite3.IntegrityError:
+        # Lost the race against a concurrent signup for the same email
+        # (the unique index fired). Same response as the pre-check above.
+        raise HTTPException(status_code=409, detail="Email already registered")
     token = create_token(user.id)
     logger.info("User registered: %s", user.id)
     return {"token": token, "user_id": user.id}

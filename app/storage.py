@@ -324,6 +324,11 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_artifacts_ref      ON ai_artifacts(scope, ref_id);
             CREATE INDEX IF NOT EXISTS idx_packs_module_user  ON study_packs(module_id, user_id);
             CREATE INDEX IF NOT EXISTS idx_sync_log_user_time ON sync_log(user_id, applied_at);
+            -- Email is the login identifier and must be unique. The register
+            -- route also checks-then-inserts, but that read+write isn't atomic;
+            -- this index is the authoritative guard against two concurrent
+            -- signups creating duplicate accounts for the same address.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email);
             """
         )
         _ensure_column(conn, "assessments", "status", "TEXT NOT NULL DEFAULT 'open'")

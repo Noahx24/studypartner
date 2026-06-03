@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 
-import { clearToken, getToken, loadTokenFromStorage, setToken } from './tokenStore';
+import { clearToken, getToken, loadTokenFromStorage, setToken, TOKEN_KEY } from './tokenStore';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 

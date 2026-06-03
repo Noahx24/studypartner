@@ -6,9 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.src.models import AIFeatureSet, User, UserSelection
-from app.src.utils.auth import get_current_user
+from app.src.utils.auth import ensure_module_owned, get_current_user
 from app.src.utils.time import utcnow_aware
-from app.storage import get_latest_selection, get_selection, upsert_selection
+from app.storage import (
+    get_latest_selection,
+    get_learning_units_for_module,
+    get_selection,
+    upsert_selection,
+)
 
 router = APIRouter(prefix="/selection", tags=["selection"])
 
@@ -37,6 +42,25 @@ def create_selection(
         raise HTTPException(status_code=403, detail="Access denied")
     if not body.subtopic_ids:
         raise HTTPException(status_code=400, detail="Select at least one subtopic")
+
+    # The selection's subtopic_ids are the AI gate: ai_service only
+    # generates content for ref_ids that appear here. So this is the
+    # one place to enforce that a user can't smuggle another tenant's
+    # subtopic ids into their own selection and then read/generate AI
+    # over them. Require the module to be ours and every subtopic id to
+    # actually belong to that module.
+    ensure_module_owned(body.module_id, current_user)
+    valid_subtopic_ids = {
+        s.id
+        for lu in get_learning_units_for_module(body.module_id)
+        for s in lu.subtopics
+    }
+    unknown = [sid for sid in body.subtopic_ids if sid not in valid_subtopic_ids]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail="One or more subtopic_ids do not belong to this module",
+        )
 
     selection = UserSelection(
         id=body.id or str(uuid.uuid4()),

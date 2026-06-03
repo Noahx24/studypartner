@@ -29,8 +29,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # Selected by storage.py when present; falls back to local SQLite.
-      DATABASE_URL: postgresql://studypartner:studypartner-dev@postgres:5432/studypartner
+      # NOTE: the storage layer is still SQLite-only — storage.py
+      # _check_database_url() *raises* on a postgres:// DATABASE_URL to
+      # avoid silently writing to the wrong place. So we deliberately do
+      # NOT set DATABASE_URL here; the backend uses the SQLite file under
+      # the ./data volume. The postgres service below is reserved for the
+      # pending migration and is otherwise unused by the app today.
       STUDYPARTNER_MOODLE_BASE_URL: https://mymodules.dtls.unisa.ac.za
       STUDYPARTNER_SECRET: dev-secret-do-not-use-in-prod-but-32+-chars-so-the-gate-passes-here
       STUDYPARTNER_FERNET_KEY: ${STUDYPARTNER_FERNET_KEY}

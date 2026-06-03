@@ -82,3 +82,58 @@ def test_module_unknown_id_returns_404():
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 404
+
+
+def test_upload_blocks_cross_user_module_overwrite():
+    """Uploading to another user's module id must 403 — ingestion calls
+    replace_learning_units(), which would otherwise delete the owner's
+    parsed content. Moodle module ids (`moodle-<courseid>`) are guessable,
+    so this is the destructive cross-tenant path that matters most."""
+    import io
+
+    _fresh_db()
+    client = TestClient(app)
+    _, uid_a = _register(client, "a@x.test")
+    token_b, uid_b = _register(client, "b@x.test")
+    add_module(Module(id="m-a", user_id=uid_a, name="A's module", module_type=ModuleType.semester))
+
+    r = client.post(
+        "/upload",
+        headers={"Authorization": f"Bearer {token_b}"},
+        data={
+            "user_id": uid_b,
+            "module_id": "m-a",  # A's module
+            "module_name": "hijack",
+            "module_type": "semester",
+        },
+        files={"file": ("notes.txt", io.BytesIO(b"hello world"), "text/plain")},
+    )
+    assert r.status_code == 403, r.text
+
+
+def test_assessment_blocks_cross_user_module_write():
+    """Adding an assessment to another user's module must be refused —
+    add_assessment upserts on conflict, so it's a cross-tenant write."""
+    _fresh_db()
+    client = TestClient(app)
+    _, uid_a = _register(client, "a@x.test")
+    token_b, _ = _register(client, "b@x.test")
+    add_module(Module(id="m-a", user_id=uid_a, name="A's module", module_type=ModuleType.semester))
+
+    r = client.post(
+        "/assessments",
+        headers={"Authorization": f"Bearer {token_b}"},
+        json={"id": "a-x", "module_id": "m-a", "title": "T", "due_date": "2030-01-01"},
+    )
+    assert r.status_code == 403, r.text
+
+
+def test_duplicate_email_registration_returns_409():
+    _fresh_db()
+    client = TestClient(app)
+    _register(client, "dup@x.test")
+    r = client.post(
+        "/users/register",
+        json={"name": "x", "email": "dup@x.test", "password": "longenoughpw1!"},
+    )
+    assert r.status_code == 409, r.text

@@ -15,6 +15,7 @@ from app.storage import (
     add_module,
     get_learning_units_for_module,
     get_module_content,
+    get_module_owner,
     get_module_study_units,
     get_user,
 )
@@ -48,11 +49,28 @@ def add_module_endpoint(
 ) -> dict:
     if current_user.id != body.user_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    # Module IDs are caller-supplied and frequently guessable (Moodle
+    # courses map to `moodle-<courseid>`). `add_module` is INSERT OR
+    # IGNORE, so without this guard a request naming someone else's
+    # module id would silently no-op yet return "created" — confusing,
+    # and a probe for which ids exist. Refuse if the id is already taken
+    # by another user.
+    existing_owner = get_module_owner(body.id)
+    if existing_owner is not None and existing_owner != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    # Clean 400 on an unknown module_type rather than a 500 from the enum.
+    try:
+        module_type = ModuleType(body.module_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid module_type. Allowed: {', '.join(m.value for m in ModuleType)}",
+        )
     module = Module(
         id=body.id,
         user_id=body.user_id,
         name=body.name,
-        module_type=ModuleType(body.module_type),
+        module_type=module_type,
     )
     add_module(module)
     return {"status": "created", "module_id": module.id}
@@ -63,6 +81,11 @@ def add_assessment_endpoint(
     body: CreateAssessmentRequest,
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    # An assessment must hang off a module the caller owns. Without this
+    # check any authenticated user could create or overwrite assessments
+    # on another user's (guessable) module id — `add_assessment` upserts
+    # on conflict, so this is a write primitive across tenants.
+    ensure_module_owned(body.module_id, current_user)
     try:
         due = date.fromisoformat(body.due_date)
     except ValueError:
@@ -91,6 +114,15 @@ async def upload_content_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    # Ingestion calls replace_learning_units()/replace_topics_and_units(),
+    # which DELETE the module's existing content before inserting. If the
+    # module id is already owned by someone else, uploading here would wipe
+    # their parsed material — and Moodle ids (`moodle-<courseid>`) are
+    # guessable. Allow the id only if it's unclaimed (first upload creates
+    # it) or already ours.
+    existing_owner = get_module_owner(module_id)
+    if existing_owner is not None and existing_owner != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     user = get_user(user_id)
     if not user:
