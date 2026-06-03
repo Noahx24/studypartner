@@ -23,7 +23,7 @@ def _fresh_db():
 def _register(client):
     r = client.post(
         "/users/register",
-        json={"name": "x", "email": "x@y.test", "password": "longenoughpw!"},
+        json={"name": "x", "email": "x@y.test", "password": "longenoughpw1!"},
     )
     assert r.status_code == 200, r.text
     return r.json()["token"]
@@ -67,7 +67,7 @@ def test_new_login_after_logout_works():
     time.sleep(1.5)
     first_login = client.post(
         "/users/login",
-        json={"email": "x@y.test", "password": "longenoughpw!"},
+        json={"email": "x@y.test", "password": "longenoughpw1!"},
     ).json()
     auth = {"Authorization": f"Bearer {first_login['token']}"}
     client.post("/users/logout", headers=auth)
@@ -77,7 +77,7 @@ def test_new_login_after_logout_works():
     time.sleep(1.5)
     second_login = client.post(
         "/users/login",
-        json={"email": "x@y.test", "password": "longenoughpw!"},
+        json={"email": "x@y.test", "password": "longenoughpw1!"},
     ).json()
     auth2 = {"Authorization": f"Bearer {second_login['token']}"}
     assert client.get("/users/me", headers=auth2).status_code == 200

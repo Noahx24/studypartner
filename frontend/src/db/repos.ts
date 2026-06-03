@@ -22,6 +22,17 @@ export const outbox = {
     if (!op_ids.length) return;
     await db.outbox.where('op_id').anyOf(op_ids).delete();
   },
+
+  /**
+   * Drop ops the server rejected with a conflict reason so we don't
+   * resubmit them in a hot loop. The caller is responsible for
+   * surfacing the reason to the user (e.g. via a toast) — this is
+   * just the persistence-layer half.
+   */
+  async dropConflicted(op_ids: string[]): Promise<void> {
+    if (!op_ids.length) return;
+    await db.outbox.where('op_id').anyOf(op_ids).delete();
+  },
 };
 
 export const packsRepo = {

@@ -288,6 +288,17 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
+            CREATE INDEX IF NOT EXISTS idx_password_reset_expiry ON password_reset_tokens(expires_at);
+
             CREATE TABLE IF NOT EXISTS ai_call_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
@@ -378,6 +389,53 @@ def get_user_multiplier(user_id: str) -> tuple[float, int]:
     if not row:
         return 1.0, 0
     return float(row["pace_multiplier"]), int(row["feedback_samples"])
+
+
+def save_password_reset_token(token_hash: str, user_id: str, created_at_iso: str, expires_at_iso: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO password_reset_tokens (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token_hash, user_id, created_at_iso, expires_at_iso),
+        )
+
+
+def consume_password_reset_token(token_hash: str, now_iso: str) -> str | None:
+    """Atomic single-use claim. Returns the user_id if the token is
+    fresh + unused + matched in one conditional UPDATE; None otherwise.
+
+    The previous SELECT-then-UPDATE race let two concurrent resets
+    with the same token both see consumed_at=NULL before either wrote.
+    The conditional UPDATE here makes the read + write a single
+    statement: SQLite's rowcount is the canonical "did I win the
+    race?" signal — exactly one caller can flip a given row from
+    consumed_at=NULL to consumed_at=<now>.
+    """
+    with get_connection() as conn:
+        cur = conn.execute(
+            """
+            UPDATE password_reset_tokens
+               SET consumed_at = ?
+             WHERE token_hash = ?
+               AND consumed_at IS NULL
+               AND expires_at >= ?
+            """,
+            (now_iso, token_hash, now_iso),
+        )
+        if cur.rowcount != 1:
+            return None
+        row = conn.execute(
+            "SELECT user_id FROM password_reset_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        return row["user_id"] if row else None
+
+
+def update_password_hash(user_id: str, password_hash: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash, user_id),
+        )
 
 
 def get_tokens_invalidated_at(user_id: str) -> int | None:
@@ -524,6 +582,7 @@ def delete_user_cascade(user_id: str) -> dict:
         counts["users"] = cur.rowcount
 
     return counts
+
 
 
 def update_user_multiplier(user_id: str, multiplier: float, feedback_samples: int) -> None:

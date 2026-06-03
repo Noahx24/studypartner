@@ -26,8 +26,13 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-xl border-b border-border/60">
+      {/* Header. paddingTop accommodates the iOS status bar / notch
+          via the safe-area-inset env var; falls back to 0 on devices
+          without safe-area cutouts. */}
+      <header
+        className="sticky top-0 z-40 bg-background/90 backdrop-blur-xl border-b border-border/60"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
@@ -49,13 +54,20 @@ export default function AppLayout() {
         </div>
       </header>
 
-      {/* Content */}
-      <main className="flex-1 max-w-2xl mx-auto w-full px-4 pb-24 pt-6">
+      {/* Content. Extra bottom padding so the home-indicator on
+          notched iPhones doesn't sit under the floating nav. */}
+      <main
+        className="flex-1 max-w-2xl mx-auto w-full px-4 pt-6"
+        style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom, 0px))' }}
+      >
         <Outlet />
       </main>
 
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-xl border-t border-border/60">
+      {/* Bottom Navigation. paddingBottom = home-indicator avoidance. */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-xl border-t border-border/60"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
         <div className="max-w-2xl mx-auto px-2">
           <div className="flex items-center justify-around h-16">
             {navItems.map((item) => {

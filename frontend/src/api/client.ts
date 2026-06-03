@@ -302,10 +302,12 @@ export const api = {
     ),
 
   moodleSync: () =>
-    request<{ modules_synced: number; assessments_synced: number; last_sync: string }>(
-      '/moodle/sync',
-      { method: 'POST', body: '{}' },
-    ),
+    request<{
+      modules_synced: number;
+      assessments_synced: number;
+      warnings: string[];
+      last_sync: string;
+    }>('/moodle/sync', { method: 'POST', body: '{}' }),
 
   moodleIcsImport: (payload: { user_id: string; ics_text: string }) =>
     request<{ events_imported: number }>('/moodle/ics/import', { method: 'POST', body: JSON.stringify(payload) }),

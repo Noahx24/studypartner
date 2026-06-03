@@ -30,7 +30,7 @@ def _fresh_db():
 def _register(client, email="a@x.test"):
     r = client.post(
         "/users/register",
-        json={"name": "x", "email": email, "password": "longenoughpw!"},
+        json={"name": "x", "email": email, "password": "longenoughpw1!"},
     )
     assert r.status_code == 200, r.text
     return r.json()["token"], r.json()["user_id"]

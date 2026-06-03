@@ -364,10 +364,14 @@ class AIService:
     def generate_summary(self, sub: Subtopic, selection: UserSelection) -> dict:
         self._ensure_allowed(selection, "summary", sub.id)
         prompt = LOW_DATA_SUMMARY if (selection.low_data_mode or self.low_data) else PROMPT_SUMMARY
+        # cache_body includes both title and content so a title-only
+        # edit invalidates the cache. Plain `sub.content` would miss
+        # this because the title is in the prompt but not the body.
+        cache_body = f"TITLE:{sub.title}\n{sub.content}"
         return self._cached(
             scope="summary",
             ref_id=sub.id,
-            body=sub.content,
+            body=cache_body,
             prompt_template=prompt,
             prompt_vars={"title": sub.title, "body": sub.content},
             low_data=selection.low_data_mode or self.low_data,
@@ -378,10 +382,11 @@ class AIService:
     def generate_subtopic_quiz(self, sub: Subtopic, selection: UserSelection) -> dict:
         self._ensure_allowed(selection, "subtopic_quiz", sub.id)
         prompt = LOW_DATA_SUBTOPIC_QUIZ if (selection.low_data_mode or self.low_data) else PROMPT_SUBTOPIC_QUIZ
+        cache_body = f"TITLE:{sub.title}\n{sub.content}"
         return self._cached(
             scope="subtopic_quiz",
             ref_id=sub.id,
-            body=sub.content,
+            body=cache_body,
             prompt_template=prompt,
             prompt_vars={"title": sub.title, "body": sub.content},
             low_data=selection.low_data_mode or self.low_data,
@@ -395,10 +400,13 @@ class AIService:
         if not selected_subs:
             raise ValueError("No selected subtopics in learning unit")
         body = "\n\n".join(f"## {s.title}\n{s.content}" for s in selected_subs)
+        # Topic name also affects the prompt; mix into the cache key
+        # so renaming a learning unit invalidates the topic quiz.
+        cache_body = f"TOPIC:{lu.topic}\n{body}"
         return self._cached(
             scope="topic_quiz",
             ref_id=lu.id,
-            body=body,
+            body=cache_body,
             prompt_template=PROMPT_TOPIC_QUIZ,
             prompt_vars={"topic": lu.topic, "body": body},
             low_data=selection.low_data_mode or self.low_data,

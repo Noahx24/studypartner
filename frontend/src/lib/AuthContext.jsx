@@ -101,6 +101,22 @@ export const AuthProvider = ({ children }) => {
     loadTokenFromStorage().then(checkUserAuth);
   }, [checkUserAuth]);
 
+  // Multi-tab consistency: when another tab logs out (or logs in as a
+  // different user), mirror the change locally instead of silently
+  // showing the old user's data. The `storage` event fires in EVERY
+  // other tab when localStorage changes, not in the tab that mutated.
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key !== TOKEN_KEY && event.key !== null) return;
+      // event.key === null on `localStorage.clear()` (no specific key).
+      // event.newValue === null means logout / removal.
+      // Any change → re-derive auth state from the current token.
+      checkUserAuth();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [checkUserAuth]);
+
   return (
     <AuthContext.Provider
       value={{
