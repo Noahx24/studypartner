@@ -454,24 +454,51 @@ def ingest_selected_materials(user_id: str) -> dict:
 # ---- ICS fallback ----
 
 def import_ics(user_id: str, ics_text: str) -> dict:
-    """Minimal ICS parser for deadlines only. Extracts VEVENT DTSTART + SUMMARY."""
-    blocks = re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", ics_text, re.DOTALL)
+    """Import deadlines from an ICS feed (Moodle's calendar export).
+
+    Uses the standards-compliant `icalendar` package rather than a
+    hand-rolled regex. The previous implementation failed on:
+      - line continuations (RFC 5545 unfolding)
+      - escape sequences (\\, ',', ';', etc.) inside SUMMARY
+      - VEVENTs containing nested VALARM blocks
+      - DTSTART with TZID parameter and a datetime value
+      - calendars with CRLF vs LF line endings
+    `icalendar` handles all of these as a library job.
+    """
+    from icalendar import Calendar
+
+    try:
+        cal = Calendar.from_ical(ics_text)
+    except Exception as exc:
+        logger.warning("ICS import failed to parse: %s", exc)
+        return {"events_imported": 0}
+
     added = 0
-    for block in blocks:
-        summary = _ics_field(block, "SUMMARY")
-        dtstart = _ics_field(block, "DTSTART")
-        uid = _ics_field(block, "UID") or f"ics-{added}"
-        if not summary or not dtstart:
+    for component in cal.walk("VEVENT"):
+        summary = component.get("SUMMARY")
+        dtstart = component.get("DTSTART")
+        uid = component.get("UID") or f"ics-{added}"
+        if not summary or dtstart is None:
             continue
-        due = _parse_ics_date(dtstart)
-        if not due:
+        try:
+            dt_value = dtstart.dt
+        except AttributeError:
+            continue
+        # dt_value is a datetime, a date, or (rarely) something else.
+        # Coerce to a date in the user's local sense; we only care
+        # about the day a deadline falls on.
+        if isinstance(dt_value, datetime):
+            due = dt_value.date()
+        elif isinstance(dt_value, date):
+            due = dt_value
+        else:
             continue
         try:
             add_assessment(
                 Assessment(
                     id=f"ics-{uid}",
                     module_id="ics-inbox",
-                    title=summary,
+                    title=str(summary),
                     due_date=due,
                     weight=1.0,
                 )
@@ -481,21 +508,5 @@ def import_ics(user_id: str, ics_text: str) -> dict:
             logger.warning("Skipped ICS event %s: %s", uid, exc)
             continue
     return {"events_imported": added}
-
-
-def _ics_field(block: str, name: str) -> str | None:
-    m = re.search(rf"^{name}(?:;[^:]*)?:(.+)$", block, re.MULTILINE)
-    return m.group(1).strip() if m else None
-
-
-def _parse_ics_date(raw: str) -> date | None:
-    raw = raw.strip()
-    # DATE form: YYYYMMDD
-    if len(raw) >= 8 and raw[:8].isdigit():
-        try:
-            return date(int(raw[0:4]), int(raw[4:6]), int(raw[6:8]))
-        except ValueError:
-            return None
-    return None
 
 

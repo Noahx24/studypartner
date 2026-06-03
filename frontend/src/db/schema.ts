@@ -103,6 +103,33 @@ export class StudyPartnerDB extends Dexie {
 
   constructor() {
     super('studypartner');
+
+    // ───────────────────────────────────────────────────────────────
+    // Schema versioning
+    //
+    // Dexie keeps the LAST version's stores definition as the live
+    // schema; every prior version block stays so that an existing
+    // IndexedDB on an older app build can be migrated forward without
+    // wiping data. Without the older blocks, Dexie 4 throws
+    // SchemaError on first open of a v1 DB after we bump to v2 — a
+    // hard regression for any user with cached data.
+    //
+    // Add a NEW .version(N) block below for every schema change;
+    // do NOT mutate the existing v1 stores definition.
+    //
+    // Pattern for additive index changes:
+    //   this.version(2).stores({
+    //     modules: 'id, user_id, name, created_at',  // +created_at
+    //   });
+    //
+    // Pattern for data migrations:
+    //   this.version(3).stores({...}).upgrade(async (tx) => {
+    //     await tx.table('subtopics').toCollection().modify((row) => {
+    //       row.normalised_title = row.title.toLowerCase();
+    //     });
+    //   });
+    // ───────────────────────────────────────────────────────────────
+
     this.version(1).stores({
       modules: 'id, user_id, name',
       learning_units: 'id, module_id, ordinal',
