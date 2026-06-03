@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.src.models import User
 from app.src.models.services.study_pack_service import build_pack, new_pack, regenerate_artifact
 from app.src.utils.auth import get_current_user
+from app.src.utils.quota import enforce_ai_quota
 from app.src.utils.ratelimit import limiter
 from app.storage import (
     get_idempotency_response,
@@ -49,6 +50,8 @@ def generate_pack(
     if current_user.id != body.user_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Idempotency replay BEFORE the quota check: a network-flake retry
+    # of a previously successful mint shouldn't burn quota a second time.
     if idempotency_key:
         # Length-bound so a malicious client can't poison the table
         # with megabyte keys.
@@ -63,6 +66,7 @@ def generate_pack(
             # The cached pack was deleted (cascade after account deletion,
             # etc.) — fall through and mint a fresh one.
 
+    enforce_ai_quota(body.user_id)
     try:
         pack = new_pack(user_id=body.user_id, selection_id=body.selection_id)
     except ValueError as exc:
@@ -164,5 +168,6 @@ def regenerate_endpoint(
         raise HTTPException(status_code=404, detail="Pack not found")
     if pack.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    enforce_ai_quota(current_user.id)
     tasks.add_task(regenerate_artifact, pack_id, body.scope, body.ref_id)
     return {"pack_id": pack_id, "status": "generating", "regenerate": {"scope": body.scope, "ref_id": body.ref_id}}

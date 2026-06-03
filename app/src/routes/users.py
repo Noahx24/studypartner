@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 import uuid
 
@@ -10,7 +11,13 @@ from app.src.models import Pace, User
 from app.src.models.services.auth_service import create_token, hash_password, verify_password
 from app.src.utils.auth import get_current_user
 from app.src.utils.ratelimit import limiter
-from app.storage import create_user, get_user, get_user_by_email
+from app.storage import (
+    create_user,
+    delete_user_cascade,
+    get_user,
+    get_user_by_email,
+    revoke_user_tokens,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -71,6 +78,38 @@ def login_endpoint(request: Request, body: LoginRequest) -> dict:
 def get_me(current_user: User = Depends(get_current_user)) -> dict:
     """Return the profile of the authenticated user."""
     return _serialize(current_user)
+
+
+@router.post("/logout")
+def logout_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+    """Invalidate every JWT previously issued for the current user.
+
+    Stateless JWTs cannot be individually revoked, so we bump a
+    per-user `tokens_invalidated_at` timestamp; verify_token rejects
+    any token whose `iat` is older than that. The client should also
+    drop its local copy of the token.
+    """
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
+    revoke_user_tokens(current_user.id, now_epoch)
+    return {"status": "logged_out", "invalidated_at": now_epoch}
+
+
+@router.delete("/me")
+def delete_me_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+    """Hard-delete the current user and all their data.
+
+    Required by GDPR Article 17 / POPIA Section 24 (right to erasure)
+    and by App Store Review guideline 5.1.1(v). Wipes modules,
+    learning units, subtopics, assessments, uploads (including the
+    files on disk), study packs, AI artifacts, sync log, parsing
+    feedback, Moodle account + token, and the user row itself.
+
+    Irreversible. The frontend must show a confirmation step before
+    calling this.
+    """
+    logger.info("Deleting user (right-to-erasure): %s", current_user.id)
+    counts = delete_user_cascade(current_user.id)
+    return {"status": "deleted", "rows_removed": counts}
 
 
 @router.get("/{user_id}")

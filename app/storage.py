@@ -59,7 +59,35 @@ class _ManagedConnection:
         return False
 
 
+def _check_database_url() -> None:
+    """Fail-loud guard for the in-progress Postgres migration.
+
+    The full migration of every raw-SQL site in this module to a driver-
+    agnostic interface is non-trivial (1300+ lines of `?` placeholders).
+    Until that lands, setting DATABASE_URL to a Postgres connection
+    string is a configuration mistake — the app would silently run on
+    SQLite, the operator would think they're on Postgres, and the data
+    would land in the wrong place. Raise here instead.
+
+    Tracked work: convert `get_connection()` to dispatch on the URL
+    scheme; convert every `?`-placeholder SQL site to use a parameter
+    style portable between SQLite and Postgres; add Alembic migrations
+    for the schema; provide a one-shot SQLite → Postgres dump/restore
+    script for existing deployments.
+    """
+    import os as _os
+    db_url = _os.environ.get("DATABASE_URL")
+    if db_url and db_url.startswith(("postgres://", "postgresql://", "postgresql+")):
+        raise RuntimeError(
+            "DATABASE_URL points at Postgres but the storage layer is "
+            "still SQLite-only. Unset DATABASE_URL (or use sqlite://) "
+            "until the Postgres migration ships. See app/storage.py "
+            "_check_database_url for tracked work."
+        )
+
+
 def get_connection() -> _ManagedConnection:
+    _check_database_url()
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -270,6 +298,15 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_idempotency_expiry ON idempotency_keys(expires_at);
 
+            CREATE TABLE IF NOT EXISTS ai_call_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ai_call_log_user_time ON ai_call_log(user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_parsing_feedback_module ON parsing_feedback(user_id, module_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_subtopics_lu       ON subtopics(learning_unit_id, ordinal);
             CREATE INDEX IF NOT EXISTS idx_lu_module          ON learning_units(module_id, ordinal);
@@ -281,6 +318,9 @@ def init_db() -> None:
         _ensure_column(conn, "assessments", "status", "TEXT NOT NULL DEFAULT 'open'")
         _ensure_column(conn, "assessments", "moodle_id", "TEXT")
         _ensure_column(conn, "users", "password_hash", "TEXT")
+        # Unix epoch seconds. Tokens with `iat` < this value are rejected
+        # in verify_token. Bumped by /users/logout. NULL = never revoked.
+        _ensure_column(conn, "users", "tokens_invalidated_at", "INTEGER")
         _ensure_column(conn, "moodle_resources", "included_in_ai", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "moodle_resources", "ingested_at", "TEXT")
         _ensure_column(conn, "moodle_resources", "filename", "TEXT")
@@ -374,6 +414,152 @@ def get_user_multiplier(user_id: str) -> tuple[float, int]:
     if not row:
         return 1.0, 0
     return float(row["pace_multiplier"]), int(row["feedback_samples"])
+
+
+def get_tokens_invalidated_at(user_id: str) -> int | None:
+    """Unix epoch seconds before which JWTs for this user are invalid.
+    None means never revoked. Read on every authenticated request."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT tokens_invalidated_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row or row["tokens_invalidated_at"] is None:
+        return None
+    return int(row["tokens_invalidated_at"])
+
+
+def revoke_user_tokens(user_id: str, at_epoch_seconds: int) -> None:
+    """Mark all JWTs issued before `at_epoch_seconds` as invalid."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET tokens_invalidated_at = ? WHERE id = ?",
+            (at_epoch_seconds, user_id),
+        )
+
+
+def log_ai_call(user_id: str, scope: str, model: str) -> None:
+    """Record one billable LLM call against a user's quota. Called from
+    AIService only on cache miss — cache hits are free."""
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO ai_call_log (user_id, scope, model, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, scope, model, utcnow_iso()),
+        )
+
+
+def count_ai_calls_since(user_id: str, since_iso: str) -> int:
+    """How many billable AI calls this user has made since `since_iso`."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM ai_call_log WHERE user_id = ? AND created_at >= ?",
+            (user_id, since_iso),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def delete_user_cascade(user_id: str) -> dict:
+    """Hard-delete a user and every row they touch.
+
+    Used by GDPR / POPIA right-to-deletion (DELETE /users/me) and by
+    App Store guideline 5.1.1(v). Returns counts for the deletion
+    receipt; the user will never see this directly but it's useful
+    for audit logs.
+
+    Order matters: leaf tables first (those that reference modules or
+    learning_units), then modules, then user-scoped tables, then the
+    user row itself. SQLite has no FK cascades wired here, so we walk
+    it manually. Upload files on disk are removed before their DB rows
+    so a half-completed delete doesn't leave dangling blobs.
+    """
+    counts: dict[str, int] = {}
+    with get_connection() as conn:
+        module_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM modules WHERE user_id = ?", (user_id,)
+        ).fetchall()]
+        learning_unit_ids: list[str] = []
+        subtopic_ids: list[str] = []
+        if module_ids:
+            placeholders = ",".join("?" for _ in module_ids)
+            learning_unit_ids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM learning_units WHERE module_id IN ({placeholders})",
+                module_ids,
+            ).fetchall()]
+            if learning_unit_ids:
+                lu_placeholders = ",".join("?" for _ in learning_unit_ids)
+                subtopic_ids = [r["id"] for r in conn.execute(
+                    f"SELECT id FROM subtopics WHERE learning_unit_id IN ({lu_placeholders})",
+                    learning_unit_ids,
+                ).fetchall()]
+
+        # Files on disk for this user's uploads. Best-effort: missing
+        # files don't abort the delete.
+        for row in conn.execute(
+            "SELECT filepath FROM uploads WHERE user_id = ?", (user_id,)
+        ).fetchall():
+            try:
+                Path(row["filepath"]).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        # ai_artifacts is keyed by (scope, ref_id) where ref_id is a
+        # subtopic_id or learning_unit_id. Wipe both halves.
+        if subtopic_ids:
+            sub_ph = ",".join("?" for _ in subtopic_ids)
+            cur = conn.execute(
+                f"DELETE FROM ai_artifacts WHERE ref_id IN ({sub_ph})",
+                subtopic_ids,
+            )
+            counts["ai_artifacts_subtopic"] = cur.rowcount
+        if learning_unit_ids:
+            lu_ph = ",".join("?" for _ in learning_unit_ids)
+            cur = conn.execute(
+                f"DELETE FROM ai_artifacts WHERE ref_id IN ({lu_ph})",
+                learning_unit_ids,
+            )
+            counts["ai_artifacts_lu"] = cur.rowcount
+
+        if subtopic_ids:
+            sub_ph = ",".join("?" for _ in subtopic_ids)
+            cur = conn.execute(
+                f"DELETE FROM subtopics WHERE id IN ({sub_ph})", subtopic_ids
+            )
+            counts["subtopics"] = cur.rowcount
+        if learning_unit_ids:
+            lu_ph = ",".join("?" for _ in learning_unit_ids)
+            cur = conn.execute(
+                f"DELETE FROM learning_units WHERE id IN ({lu_ph})",
+                learning_unit_ids,
+            )
+            counts["learning_units"] = cur.rowcount
+
+        if module_ids:
+            mod_ph = ",".join("?" for _ in module_ids)
+            for table in ("assessments", "moodle_resources", "topics", "study_units"):
+                cur = conn.execute(
+                    f"DELETE FROM {table} WHERE module_id IN ({mod_ph})", module_ids
+                )
+                counts[table] = cur.rowcount
+
+        for table in (
+            "session_feedback",
+            "sessions",
+            "study_packs",
+            "user_selections",
+            "parsing_feedback",
+            "sync_log",
+            "uploads",
+            "modules",
+            "moodle_accounts",
+            "moodle_launch_passports",
+            "ai_call_log",
+        ):
+            cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+            counts[table] = cur.rowcount
+
+        cur = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        counts["users"] = cur.rowcount
+
+    return counts
 
 
 def update_user_multiplier(user_id: str, multiplier: float, feedback_samples: int) -> None:
