@@ -366,7 +366,7 @@ Selector via `STUDYPARTNER_LLM_BACKEND`:
 |---|---|
 | unset / `stub` | deterministic templates derived from the source content — no network calls. Default; keeps tests + demos hermetic. |
 | `ollama` | local Ollama daemon (default `http://localhost:11434`). For local development against a real LLM. |
-| `anthropic` | placeholder; not wired yet. Currently still defers to the stub. |
+| `anthropic` | live. Calls `anthropic.messages.create` with the model from `ANTHROPIC_MODEL` (default `claude-haiku-4-5`). Requires `ANTHROPIC_API_KEY` and `pip install -e "app/.[ai]"`. Per-request 5xx/network failures fall back to the stub so user requests don't 500; the artifact is tagged with the stub model so the next request retries the real backend. |
 
 ### Running against Ollama (local)
 
@@ -442,7 +442,10 @@ pytest -q
   `STUDYPARTNER_ENV=production` the boot is gated: a missing,
   default, or short secret refuses to start. Pick a long random
   value (`python -c "import secrets; print(secrets.token_urlsafe(48))"`).
-  JWTs are stateless; there is no server-side revocation table yet.
+  JWTs are stateless but revocable via `POST /users/logout`: each user
+  has a `tokens_invalidated_at` epoch, and `verify_token` rejects any
+  JWT whose `iat` is `<=` that timestamp. Same mechanism kills sessions
+  on account deletion (`DELETE /users/me`).
 - **Material selection writes** are scoped to the current user via
   `WHERE module_id IN (SELECT id FROM modules WHERE user_id = ?)` —
   a stolen session can't flip another user's resources.
