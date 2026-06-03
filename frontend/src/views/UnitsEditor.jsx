@@ -279,7 +279,7 @@ export default function UnitsEditor() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 shrink-0"
+                    className="h-11 w-11 shrink-0"
                     onClick={() =>
                       editingUnitTopic.trim() &&
                       renameUnit.mutate({ unitId: unit.id, topic: editingUnitTopic.trim() })
@@ -291,7 +291,7 @@ export default function UnitsEditor() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 shrink-0"
+                    className="h-11 w-11 shrink-0"
                     onClick={() => setEditingUnitId(null)}
                   >
                     <X className="w-4 h-4" />
@@ -306,7 +306,7 @@ export default function UnitsEditor() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 shrink-0"
+                    className="h-11 w-11 shrink-0"
                     onClick={() => startEditUnit(unit)}
                     aria-label="Rename unit"
                   >
@@ -315,7 +315,7 @@ export default function UnitsEditor() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-8 w-8 shrink-0 text-destructive"
+                    className="h-11 w-11 shrink-0 text-destructive"
                     onClick={() => confirmDelete('unit', unit.topic, () => removeUnit.mutate(unit.id))}
                     aria-label="Delete unit"
                   >
@@ -354,7 +354,7 @@ export default function UnitsEditor() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0"
+                            className="h-11 w-11 shrink-0"
                             onClick={() =>
                               editingSubtopicTitle.trim() &&
                               renameSubtopic.mutate({ subtopicId: sub.id, title: editingSubtopicTitle.trim() })
@@ -365,7 +365,7 @@ export default function UnitsEditor() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-8 w-8 shrink-0"
+                            className="h-11 w-11 shrink-0"
                             onClick={() => setEditingSubtopicId(null)}
                           >
                             <X className="w-4 h-4" />

@@ -315,12 +315,13 @@ def test_stub_fallback_does_not_block_ollama_recovery(monkeypatch):
     # rather than the Ollama model. We don't filter by model here so we
     # observe whatever row was actually saved.
     from app.storage import get_ai_artifact
-    from app.src.models.services.ai_service import PROMPT_SUMMARY
-    import hashlib
-    content_hash = hashlib.sha256(sub.content.encode("utf-8")).hexdigest()
-    prompt_hash = hashlib.sha256(
-        (PROMPT_SUMMARY + "|low_data=0").encode("utf-8")
-    ).hexdigest()
+    from app.src.models.services.ai_service import PROMPT_SUMMARY, _sha
+    content_hash = _sha(sub.content)
+    # prompt_hash now includes the corrections preamble — empty in
+    # this test (no parsing_feedback rows for the user/module).
+    prompt_hash = _sha(
+        PROMPT_SUMMARY + f"|low_data=0|corrections={_sha('')}"
+    )
     stub_hit = get_ai_artifact("summary", "s-1", content_hash, prompt_hash)
     assert stub_hit is not None
     assert stub_hit.model == "stub-llm-v1"

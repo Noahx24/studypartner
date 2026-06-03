@@ -39,7 +39,7 @@ export default function AppLayout() {
             variant="ghost"
             size="icon"
             onClick={() => setDark(d => !d)}
-            className="h-9 w-9 rounded-xl"
+            className="h-11 w-11 rounded-xl"
           >
             {dark
               ? <Sun className="w-4 h-4 text-accent" />
