@@ -1,0 +1,32 @@
+{
+  "name": "StudyPartner",
+  "short_name": "StudyPartner",
+  "description": "AI study partner for distance learners. Connects to your Moodle, builds a daily study plan, and rebuilds it overnight when life happens.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F5F1",
+  "theme_color": "#F5F5F1",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

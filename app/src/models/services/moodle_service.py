@@ -259,10 +259,17 @@ def sync(user_id: str) -> dict:
     """Pull courses → modules, assignments → assessments, resources metadata.
 
     Metadata-only; no file downloads.
+
+    Returns counts plus a `warnings` list of human-readable failure
+    messages — per-course or per-assignment errors are caught so a
+    single bad row doesn't fail the whole sync, but they're surfaced
+    to the frontend instead of silently logged.
     """
     account = get_account(user_id)
     if not account:
         raise MoodleError("No Moodle account connected")
+
+    warnings: list[str] = []
 
     site_info = _ws_call(account.base_url, account.token, "core_webservice_get_site_info")
     moodle_uid = site_info["userid"]
@@ -289,6 +296,8 @@ def sync(user_id: str) -> dict:
                 account.base_url, account.token, "core_course_get_contents", {"courseid": c["id"]}
             )
         except MoodleError as exc:
+            label = c.get("shortname") or c.get("fullname") or f"course {c['id']}"
+            warnings.append(f"Could not fetch resources for {label}: {exc}")
             logger.warning("Failed to fetch contents for course %s: %s", c["id"], exc)
             contents = []
 
@@ -339,6 +348,8 @@ def sync(user_id: str) -> dict:
                 )
                 assessments_added += 1
             except Exception as exc:
+                assignment_label = a.get("name") or f"assignment {a.get('id')}"
+                warnings.append(f"Skipped {assignment_label}: {exc}")
                 logger.warning("Skipped assessment moodle-a-%s: %s", a.get("id"), exc)
                 continue
 
@@ -347,6 +358,7 @@ def sync(user_id: str) -> dict:
     return {
         "modules_synced": len(modules_added),
         "assessments_synced": assessments_added,
+        "warnings": warnings,
         "last_sync": now.isoformat(),
     }
 

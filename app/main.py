@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.src.routes.ai import router as ai_router
@@ -51,15 +52,48 @@ async def lifespan(_app: FastAPI):
     yield
 
 
+# Static security headers applied to every response. The API never
+# renders HTML, so the CSP is very locked-down — `default-src 'none'`
+# blocks any inline JS / fetch / iframe / etc. should a misconfigured
+# error page ever serve text/html. The frontend's own CSP lives in
+# its nginx config (and in Capacitor's Info.plist for native).
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+}
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Apply HSTS, CSP, X-Frame-Options, etc. to every response.
+
+    Starlette middleware fires for both success and HTTPException paths,
+    so error responses are also hardened. The headers are static so
+    cost is negligible.
+    """
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        for k, v in SECURITY_HEADERS.items():
+            response.headers.setdefault(k, v)
+        return response
+
+
 app = FastAPI(title="StudyPartner Backend", version="2.0.0", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Middleware order: innermost runs first. Counter wraps everything so
-# even rate-limited requests are counted; RequestId is outermost so
-# the X-Request-ID is set before any handler logs. CORS goes between.
+# Middleware order (Starlette wraps innermost first):
+#   counter (innermost — counts all responses, incl. rate-limited)
+#   security headers (always applied, even to error responses)
+#   CORS
+#   request-id (outermost — ID set before any handler logs)
 attach_counter_middleware(app)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_origins(),

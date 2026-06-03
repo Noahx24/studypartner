@@ -316,7 +316,9 @@ def test_stub_fallback_does_not_block_ollama_recovery(monkeypatch):
     # observe whatever row was actually saved.
     from app.storage import get_ai_artifact
     from app.src.models.services.ai_service import PROMPT_SUMMARY, _sha
-    content_hash = _sha(sub.content)
+    # ai_service folds the title into the cache_body since audit-high
+    # #17 — rename without content edit must invalidate the artifact.
+    content_hash = _sha(f"TITLE:{sub.title}\n{sub.content}")
     # prompt_hash now includes the corrections preamble — empty in
     # this test (no parsing_feedback rows for the user/module).
     prompt_hash = _sha(

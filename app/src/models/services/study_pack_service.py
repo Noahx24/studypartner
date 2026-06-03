@@ -144,11 +144,20 @@ def regenerate_artifact(pack_id: str, scope: str, ref_id: str) -> dict:
     """Drop the cached artifact for (scope, ref_id) and rebuild the pack.
 
     Scope must be one of: summary, subtopic_quiz, topic_quiz.
+
+    Wraps in a try/except so FastAPI's BackgroundTasks runner never
+    drops a silent failure on the floor — instead we mark the pack as
+    failed with the error string, the frontend polls pack status and
+    surfaces "regenerate failed" to the user.
     """
     if scope not in {"summary", "subtopic_quiz", "topic_quiz"}:
         raise ValueError("Invalid scope")
-    svc = AIService()
-    svc.regenerate(scope, ref_id)
-    update_pack(pack_id, status=PackStatus.generating)
-    build_pack(pack_id, ai_service=svc)
+    try:
+        svc = AIService()
+        svc.regenerate(scope, ref_id)
+        update_pack(pack_id, status=PackStatus.generating)
+        build_pack(pack_id, ai_service=svc)
+    except Exception as exc:
+        logger.error("regenerate_artifact failed for %s/%s/%s: %s", pack_id, scope, ref_id, exc, exc_info=True)
+        update_pack(pack_id, status=PackStatus.failed, error=f"regenerate failed: {exc}")
     return {"pack_id": pack_id, "regenerated": {"scope": scope, "ref_id": ref_id}}
