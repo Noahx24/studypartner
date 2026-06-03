@@ -79,10 +79,16 @@ def test_delete_me_removes_upload_files_from_disk():
         id="m-1", user_id=user_id, name="A's module", module_type=ModuleType.semester
     ))
     save_upload(user_id, "m-1", "test.txt", b"data", "raw text", page_count=1)
-    upload_files = list(pathlib.Path("data/uploads").glob("*test.txt"))
-    assert upload_files, "fixture upload did not land on disk"
-    upload_path = upload_files[0]
-    assert upload_path.exists()
+    # save_upload now uses a random token name (audit-medium #24) +
+    # preserves only the extension. Locate the new file via its row.
+    from app.storage import get_connection
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT filepath FROM uploads WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    assert row, "fixture upload did not land in DB"
+    upload_path = pathlib.Path(row["filepath"])
+    assert upload_path.exists(), "fixture upload did not land on disk"
 
     r = client.delete("/users/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200

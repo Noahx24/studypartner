@@ -6,6 +6,7 @@ import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-d
 
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { useMoodleDeepLink } from '@/lib/useMoodleDeepLink';
+import ErrorBoundary from './components/ErrorBoundary';
 import OfflineBanner from '@/components/OfflineBanner';
 
 // Route-level code splitting. The hero route (Dashboard) loads quickly;
@@ -55,20 +56,22 @@ const AuthenticatedApp = () => {
 
 function App() {
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <OfflineBanner />
-          <Suspense fallback={<Spinner />}>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/*" element={<AuthenticatedApp />} />
-            </Routes>
-          </Suspense>
-        </Router>
-        <Toaster />
-      </QueryClientProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <QueryClientProvider client={queryClientInstance}>
+          <Router>
+            <OfflineBanner />
+            <Suspense fallback={<Spinner />}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/*" element={<AuthenticatedApp />} />
+              </Routes>
+            </Suspense>
+          </Router>
+          <Toaster />
+        </QueryClientProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

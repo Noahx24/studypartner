@@ -21,10 +21,15 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
+        // Touch targets: Apple HIG / WCAG 2.5.5 require ≥44pt for
+        // interactive elements. h-11 = 44px. Default (text) buttons
+        // gain padding-y from `py-2`, so h-9 there is fine — the
+        // padded box ends up ≥44px. The icon variant has no padding
+        // and must be sized directly.
         default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        sm: "h-9 rounded-md px-3 text-xs",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-11 w-11",
       },
     },
     defaultVariants: {

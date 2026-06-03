@@ -29,6 +29,19 @@ def _fresh_db() -> None:
     init_db()
 
 
+def _register(client: TestClient, email: str = "a@x.test") -> tuple[str, str]:
+    """Register a user via the real /users/register flow (the old
+    POST /users endpoint these tests assumed never existed) and return
+    (bearer-token, user_id) for the authenticated routes."""
+    r = client.post(
+        "/users/register",
+        json={"name": "A", "email": email, "password": "longenoughpw1!"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return body["token"], body["user_id"]
+
+
 def test_add_assessment_is_idempotent():
     """Re-submitting the same assessment id must update, not raise."""
     _fresh_db()
@@ -60,19 +73,12 @@ def test_add_assessment_is_idempotent():
 def test_assessment_route_returns_201_on_duplicate():
     _fresh_db()
     client = TestClient(app)
-    client.post(
-        "/users",
-        json={
-            "id": "u1",
-            "name": "A",
-            "email": "a@x.com",
-            "hours_per_day": 2,
-            "days_per_week": 5,
-        },
-    )
+    token, user_id = _register(client)
+    auth = {"Authorization": f"Bearer {token}"}
     client.post(
         "/modules",
-        json={"id": "m1", "user_id": "u1", "name": "M", "module_type": "semester"},
+        headers=auth,
+        json={"id": "m1", "user_id": user_id, "name": "M", "module_type": "semester"},
     )
     payload = {
         "id": "a-dup",
@@ -81,8 +87,8 @@ def test_assessment_route_returns_201_on_duplicate():
         "due_date": "2030-01-01",
         "weight": 20,
     }
-    r1 = client.post("/assessments", json=payload)
-    r2 = client.post("/assessments", json=payload)
+    r1 = client.post("/assessments", headers=auth, json=payload)
+    r2 = client.post("/assessments", headers=auth, json=payload)
     assert r1.status_code == 200
     assert r2.status_code == 200  # used to be 500
 
@@ -90,21 +96,13 @@ def test_assessment_route_returns_201_on_duplicate():
 def test_upload_rejects_oversize_file():
     _fresh_db()
     client = TestClient(app)
-    client.post(
-        "/users",
-        json={
-            "id": "u1",
-            "name": "A",
-            "email": "a@x.com",
-            "hours_per_day": 2,
-            "days_per_week": 5,
-        },
-    )
+    token, user_id = _register(client)
     big = b"x" * (11 * 1024 * 1024)
     r = client.post(
         "/upload",
+        headers={"Authorization": f"Bearer {token}"},
         data={
-            "user_id": "u1",
+            "user_id": user_id,
             "module_id": "m_big",
             "module_name": "Big",
             "module_type": "semester",
@@ -117,20 +115,12 @@ def test_upload_rejects_oversize_file():
 def test_upload_rejects_unknown_extension():
     _fresh_db()
     client = TestClient(app)
-    client.post(
-        "/users",
-        json={
-            "id": "u1",
-            "name": "A",
-            "email": "a@x.com",
-            "hours_per_day": 2,
-            "days_per_week": 5,
-        },
-    )
+    token, user_id = _register(client)
     r = client.post(
         "/upload",
+        headers={"Authorization": f"Bearer {token}"},
         data={
-            "user_id": "u1",
+            "user_id": user_id,
             "module_id": "m_exe",
             "module_name": "Bad",
             "module_type": "semester",
@@ -150,20 +140,9 @@ def test_sync_applies_session_completion_idempotently():
     """Replaying the same sync op must not double-apply."""
     _fresh_db()
     client = TestClient(app)
-    # Set up a user + completed plan so there's a session to toggle
-    client.post(
-        "/users",
-        json={
-            "id": "u1",
-            "name": "A",
-            "email": "a@x.com",
-            "hours_per_day": 2,
-            "days_per_week": 5,
-        },
-    )
-    create_user_id = "u1"
-    # Use the sync route directly with an unsupported op to get a conflict, then
-    # the same op_id must be acknowledged the second time instead of re-applied.
+    token, user_id = _register(client)
+    auth = {"Authorization": f"Bearer {token}"}
+
     op_id = str(uuid.uuid4())
     op = {
         "op_id": op_id,
@@ -177,9 +156,9 @@ def test_sync_applies_session_completion_idempotently():
             "low_data_mode": False,
         },
     }
-    r1 = client.post("/sync", json={"user_id": create_user_id, "ops": [op]})
-    r2 = client.post("/sync", json={"user_id": create_user_id, "ops": [op]})
-    assert r1.status_code == 200 and r2.status_code == 200
+    r1 = client.post("/sync", headers=auth, json={"user_id": user_id, "ops": [op]})
+    r2 = client.post("/sync", headers=auth, json={"user_id": user_id, "ops": [op]})
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.text, r2.text)
     assert op_id in r1.json()["applied"]
     assert op_id in r2.json()["applied"]  # idempotent replay
     assert r2.json()["conflicts"] == []

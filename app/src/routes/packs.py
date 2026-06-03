@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from app.src.models import User
@@ -10,7 +11,14 @@ from app.src.models.services.study_pack_service import build_pack, new_pack, reg
 from app.src.utils.auth import get_current_user
 from app.src.utils.quota import enforce_ai_quota
 from app.src.utils.ratelimit import limiter
-from app.storage import get_pack, list_packs_for_module
+from app.storage import (
+    get_idempotency_response,
+    get_pack,
+    list_packs_for_module,
+    save_idempotency_response,
+)
+
+_IDEMPOTENCY_TTL = timedelta(hours=24)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pack", tags=["packs"])
@@ -33,14 +41,46 @@ def generate_pack(
     body: GeneratePackRequest,
     tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
+    """Mint a new study pack. If the client sends an `Idempotency-Key`
+    header, a retry with the same key (within 24h) returns the original
+    pack_id instead of minting a fresh one. Lets clients on flaky
+    networks safely retry without double-building."""
     if current_user.id != body.user_id:
         raise HTTPException(status_code=403, detail="Access denied")
+
+    # Idempotency replay BEFORE the quota check: a network-flake retry
+    # of a previously successful mint shouldn't burn quota a second time.
+    if idempotency_key:
+        # Length-bound so a malicious client can't poison the table
+        # with megabyte keys.
+        if len(idempotency_key) > 128:
+            raise HTTPException(status_code=400, detail="Idempotency-Key too long")
+        now = datetime.now(timezone.utc)
+        existing = get_idempotency_response(current_user.id, idempotency_key, now.isoformat())
+        if existing:
+            pack = get_pack(existing)
+            if pack:
+                return {"pack_id": pack.id, "status": pack.status.value, "idempotent_replay": True}
+            # The cached pack was deleted (cascade after account deletion,
+            # etc.) — fall through and mint a fresh one.
+
     enforce_ai_quota(body.user_id)
     try:
         pack = new_pack(user_id=body.user_id, selection_id=body.selection_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if idempotency_key:
+        now = datetime.now(timezone.utc)
+        save_idempotency_response(
+            user_id=current_user.id,
+            key=idempotency_key,
+            pack_id=pack.id,
+            created_at_iso=now.isoformat(),
+            expires_at_iso=(now + _IDEMPOTENCY_TTL).isoformat(),
+        )
 
     tasks.add_task(build_pack, pack.id)
     return {"pack_id": pack.id, "status": pack.status.value}
