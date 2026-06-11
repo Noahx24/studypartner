@@ -19,13 +19,15 @@ os.environ.setdefault("STUDYPARTNER_MOODLE_BASE_URL", "https://lms.example")
 os.environ.setdefault("STUDYPARTNER_SECRET", "test-secret-long-enough-for-prod-and-tests")
 
 from app.main import app
-from app.src.models import Assessment, Module, ModuleType, Session
+from app.src.models import Assessment, Module, ModuleType, Session, StudyUnit, UnitStatus
 from app.storage import (
     DB_PATH,
     add_assessment,
     add_module,
     get_modules,
+    get_units_for_user,
     init_db,
+    replace_topics_and_units,
     save_sessions,
 )
 
@@ -214,6 +216,33 @@ def test_miss_session_marks_missed_and_enforces_ownership():
     today = date.today().isoformat()
     daily = client.get(f"/plans/daily/{uid_a}/{today}", headers=_auth(token_a))
     assert [s["status"] for s in daily.json()["sessions"]] == ["missed"]
+
+
+def test_units_keep_numeric_order_past_ten():
+    """Regression: ORDER BY id sorted unit-10 before unit-2 (lexicographic),
+    which scrambled topic order in the plan and units screens."""
+    _fresh_db()
+    client = TestClient(app)
+    _, uid = _register(client, "a@x.test")
+    _seed_module(uid, "m-1")
+
+    units = [
+        StudyUnit(
+            id=f"m-1-unit-{n}",
+            module_id="m-1",
+            topic_id=f"m-1-topic-{n}",
+            title=f"Topic {n}",
+            estimated_minutes=30,
+            source_word_count=500,
+            complexity_score=1.0,
+            status=UnitStatus.not_started,
+        )
+        for n in range(1, 13)
+    ]
+    replace_topics_and_units("m-1", [], units)
+
+    titles = [u.title for u in get_units_for_user(uid)]
+    assert titles == [f"Topic {n}" for n in range(1, 13)], titles
 
 
 # ---- PATCH /users/me ----

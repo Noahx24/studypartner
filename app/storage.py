@@ -853,7 +853,7 @@ def get_units_for_user(user_id: str) -> list[StudyUnit]:
             SELECT u.* FROM study_units u
             JOIN modules m ON m.id = u.module_id
             WHERE m.user_id = ?
-            ORDER BY u.id
+            ORDER BY u.module_id, LENGTH(u.id), u.id
             """,
             (user_id,),
         ).fetchall()
@@ -874,7 +874,7 @@ def get_units_for_user(user_id: str) -> list[StudyUnit]:
 
 def get_units_for_module(module_id: str) -> list[StudyUnit]:
     with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM study_units WHERE module_id = ? ORDER BY id", (module_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM study_units WHERE module_id = ? ORDER BY LENGTH(id), id", (module_id,)).fetchall()
     return [
         StudyUnit(
             id=r["id"],
@@ -918,7 +918,7 @@ def get_sessions(user_id: str, start: date | None = None, end: date | None = Non
     if end:
         query += " AND session_date <= ?"
         params.append(end.isoformat())
-    query += " ORDER BY session_date, id"
+    query += " ORDER BY session_date, rowid"
 
     with get_connection() as conn:
         rows = conn.execute(query, tuple(params)).fetchall()
@@ -998,7 +998,7 @@ def get_module_content(module_id: str) -> dict:
             "SELECT filename, filepath, page_count, created_at FROM uploads WHERE module_id = ? ORDER BY id DESC", (module_id,)
         ).fetchall()
         topics = conn.execute(
-            "SELECT id, title, word_count, page_span FROM topics WHERE module_id = ? ORDER BY id", (module_id,)
+            "SELECT id, title, word_count, page_span FROM topics WHERE module_id = ? ORDER BY LENGTH(id), id", (module_id,)
         ).fetchall()
     return {"module_id": module_id, "uploads": [dict(r) for r in uploads], "topics": [dict(r) for r in topics]}
 
@@ -1006,7 +1006,7 @@ def get_module_content(module_id: str) -> dict:
 def get_module_study_units(module_id: str) -> dict:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, topic_id, title, estimated_minutes, source_word_count, complexity_score, status FROM study_units WHERE module_id = ? ORDER BY id",
+            "SELECT id, topic_id, title, estimated_minutes, source_word_count, complexity_score, status FROM study_units WHERE module_id = ? ORDER BY LENGTH(id), id",
             (module_id,),
         ).fetchall()
     return {"module_id": module_id, "study_units": [dict(r) for r in rows]}
