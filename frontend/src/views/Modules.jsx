@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import ModuleCard from '../components/modules/ModuleCard';
 import AddModuleDialog from '../components/modules/AddModuleDialog';
 import FetchFromMyModulesButton from '../components/modules/FetchFromMyModulesButton';
-import { format, parseISO, differenceInDays } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
+import { mapApiModule } from '@/lib/moduleMapping';
 
 export default function Modules() {
   const { user } = useAuth();
@@ -20,9 +21,8 @@ export default function Modules() {
   const { data } = useQuery({
     queryKey: ['modules', user?.id],
     queryFn: async () => {
-      // Modules are stored locally in IndexedDB via the sync layer;
-      // fall back to an empty list if the repo isn't populated yet.
-      return { modules: [] };
+      const { modules } = await api.listModules();
+      return { modules: modules.map(mapApiModule) };
     },
     enabled: !!user,
   });
@@ -39,7 +39,13 @@ export default function Modules() {
     return aDate.localeCompare(bDate);
   });
 
-  const handleDelete = () => {
+  const handleDelete = async (module) => {
+    try {
+      await api.deleteModule(module.id);
+      toast.success(`Deleted ${module.title}`);
+    } catch (err) {
+      toast.error(err.message || 'Delete failed');
+    }
     queryClient.invalidateQueries({ queryKey: ['modules'] });
   };
 

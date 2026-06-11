@@ -25,6 +25,7 @@ from app.storage import (
     revoke_user_tokens,
     save_password_reset_token,
     update_password_hash,
+    update_user_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,31 @@ def reset_password_endpoint(request: Request, body: ResetPasswordRequest) -> dic
 def get_me(current_user: User = Depends(get_current_user)) -> dict:
     """Return the profile of the authenticated user."""
     return _serialize(current_user)
+
+
+class UpdateSettingsRequest(BaseModel):
+    hours_per_day: float | None = Field(default=None, gt=0, le=24)
+    days_per_week: int | None = Field(default=None, ge=1, le=7)
+    pace: str | None = None
+    max_daily_hours: float | None = Field(default=None, gt=0, le=24)
+
+
+@router.patch("/me")
+def update_me_endpoint(
+    body: UpdateSettingsRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Update the study-schedule settings the planner consumes."""
+    if body.pace is not None and body.pace not in {p.value for p in Pace}:
+        raise HTTPException(status_code=400, detail="Invalid pace")
+    update_user_settings(
+        current_user.id,
+        hours_per_day=body.hours_per_day,
+        days_per_week=body.days_per_week,
+        pace=body.pace,
+        max_daily_hours=body.max_daily_hours,
+    )
+    return _serialize(get_user(current_user.id))
 
 
 @router.post("/logout")

@@ -2,10 +2,13 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval, getDay,
-  isSameMonth, isToday, parseISO, isSameDay, addMonths, subMonths,
+  isToday, isSameDay, addMonths, subMonths,
 } from 'date-fns';
 import { ChevronLeft, ChevronRight, CheckCircle2, Clock, GraduationCap, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
+import { mapApiModule } from '@/lib/moduleMapping';
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -20,8 +23,31 @@ function DayDot({ type }) {
 }
 
 export default function CalendarView() {
+  const { user } = useAuth();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(new Date());
+
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+
+  const { data: rangeData } = useQuery({
+    queryKey: ['plan-range', user?.id, format(monthStart, 'yyyy-MM')],
+    queryFn: () =>
+      api.getPlanRange(user.id, format(monthStart, 'yyyy-MM-dd'), format(monthEnd, 'yyyy-MM-dd')),
+    enabled: !!user,
+  });
+
+  const { data: modData } = useQuery({
+    queryKey: ['modules', user?.id],
+    queryFn: async () => {
+      const { modules } = await api.listModules();
+      return { modules: modules.map(mapApiModule) };
+    },
+    enabled: !!user,
+  });
+
+  const sessions = rangeData?.sessions ?? [];
+  const modules = modData?.modules ?? [];
 
   const days = useMemo(() => {
     const start = startOfMonth(currentMonth);
@@ -34,9 +60,9 @@ export default function CalendarView() {
   const getDotsForDay = (day) => {
     const dateStr = format(day, 'yyyy-MM-dd');
     const dots = [];
-    const daySessions = sessions.filter(s => s.date === dateStr);
+    const daySessions = sessions.filter(s => s.session_date === dateStr);
     if (daySessions.some(s => s.status === 'completed')) dots.push('completed');
-    else if (daySessions.some(s => s.status === 'scheduled')) dots.push('session');
+    else if (daySessions.some(s => s.status === 'planned')) dots.push('session');
     if (modules.some(m => m.exam_date === dateStr)) dots.push('exam');
     if (modules.some(m => m.assignment_date === dateStr)) dots.push('assignment');
     return dots;
@@ -45,7 +71,7 @@ export default function CalendarView() {
   const selectedDateStr = format(selectedDay, 'yyyy-MM-dd');
   const dayItems = [
     ...sessions
-      .filter(s => s.date === selectedDateStr)
+      .filter(s => s.session_date === selectedDateStr)
       .map(s => ({ type: 'session', data: s })),
     ...modules
       .filter(m => m.exam_date === selectedDateStr)

@@ -621,6 +621,38 @@ def delete_user_cascade(user_id: str) -> dict:
 
 
 
+def update_user_settings(
+    user_id: str,
+    *,
+    hours_per_day: float | None = None,
+    days_per_week: int | None = None,
+    pace: str | None = None,
+    max_daily_hours: float | None = None,
+) -> bool:
+    """Update the study-schedule settings the planner reads. Only the
+    provided fields change. Returns False if the user doesn't exist."""
+    sets: list[str] = []
+    params: list[object] = []
+    if hours_per_day is not None:
+        sets.append("hours_per_day = ?")
+        params.append(hours_per_day)
+    if days_per_week is not None:
+        sets.append("days_per_week = ?")
+        params.append(days_per_week)
+    if pace is not None:
+        sets.append("pace = ?")
+        params.append(pace)
+    if max_daily_hours is not None:
+        sets.append("max_daily_hours = ?")
+        params.append(max_daily_hours)
+    if not sets:
+        return True
+    params.append(user_id)
+    with get_connection() as conn:
+        cur = conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
+    return cur.rowcount > 0
+
+
 def update_user_multiplier(user_id: str, multiplier: float, feedback_samples: int) -> None:
     with get_connection() as conn:
         conn.execute(
@@ -661,6 +693,69 @@ def get_modules(user_id: str) -> list[Module]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM modules WHERE user_id = ? ORDER BY id", (user_id,)).fetchall()
     return [Module(id=r["id"], user_id=r["user_id"], name=r["name"], module_type=ModuleType(r["module_type"])) for r in rows]
+
+
+def delete_module(module_id: str) -> bool:
+    """Remove a module and everything hanging off it (assessments,
+    parsed structure, sessions, packs, uploads + their files). Ownership
+    is the route's responsibility (ensure_module_owned). Returns False
+    if the module doesn't exist."""
+    with get_connection() as conn:
+        exists = conn.execute("SELECT 1 FROM modules WHERE id = ?", (module_id,)).fetchone()
+        if not exists:
+            return False
+
+        learning_unit_ids = [
+            r["id"]
+            for r in conn.execute(
+                "SELECT id FROM learning_units WHERE module_id = ?", (module_id,)
+            ).fetchall()
+        ]
+        subtopic_ids: list[str] = []
+        if learning_unit_ids:
+            lu_ph = ",".join("?" for _ in learning_unit_ids)
+            subtopic_ids = [
+                r["id"]
+                for r in conn.execute(
+                    f"SELECT id FROM subtopics WHERE learning_unit_id IN ({lu_ph})",
+                    learning_unit_ids,
+                ).fetchall()
+            ]
+
+        # Uploaded files on disk — best-effort, a missing file must not
+        # abort the delete.
+        for row in conn.execute(
+            "SELECT filepath FROM uploads WHERE module_id = ?", (module_id,)
+        ).fetchall():
+            try:
+                Path(row["filepath"]).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        for ref_ids in (subtopic_ids, learning_unit_ids):
+            if ref_ids:
+                ph = ",".join("?" for _ in ref_ids)
+                conn.execute(f"DELETE FROM ai_artifacts WHERE ref_id IN ({ph})", ref_ids)
+        if subtopic_ids:
+            ph = ",".join("?" for _ in subtopic_ids)
+            conn.execute(f"DELETE FROM subtopics WHERE id IN ({ph})", subtopic_ids)
+
+        for table in (
+            "learning_units",
+            "assessments",
+            "uploads",
+            "topics",
+            "study_units",
+            "sessions",
+            "user_selections",
+            "study_packs",
+            "moodle_resources",
+            "parsing_feedback",
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE module_id = ?", (module_id,))
+
+        conn.execute("DELETE FROM modules WHERE id = ?", (module_id,))
+    return True
 
 
 def add_assessment(assessment: Assessment) -> None:
@@ -857,13 +952,44 @@ def get_session(session_id: str) -> Session | None:
     )
 
 
-def mark_session_complete(session_id: str) -> None:
+def mark_session_complete(session_id: str, user_id: str | None = None) -> bool:
+    """Mark a session (and its study unit) completed.
+
+    When `user_id` is given the session must belong to that user — a
+    valid token must not allow completing arbitrary session IDs.
+    Returns True if a session was updated, False if it doesn't exist
+    or isn't owned by `user_id`.
+    """
     with get_connection() as conn:
-        row = conn.execute("SELECT unit_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = conn.execute(
+            "SELECT unit_id, user_id FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
         if not row:
-            return
+            return False
+        if user_id is not None and row["user_id"] != user_id:
+            return False
         conn.execute("UPDATE sessions SET status = 'completed' WHERE id = ?", (session_id,))
         conn.execute("UPDATE study_units SET status = 'completed' WHERE id = ?", (row["unit_id"],))
+    return True
+
+
+def mark_session_missed(session_id: str, user_id: str | None = None) -> bool:
+    """Mark a planned session as missed (ownership-scoped like
+    mark_session_complete). Only planned sessions can be missed —
+    completing then missing would corrupt progress tracking. The
+    study unit stays incomplete so a reschedule picks it up again."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT user_id, status FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if not row:
+            return False
+        if user_id is not None and row["user_id"] != user_id:
+            return False
+        if row["status"] != "planned":
+            return False
+        conn.execute("UPDATE sessions SET status = 'missed' WHERE id = ?", (session_id,))
+    return True
 
 
 def get_module_content(module_id: str) -> dict:

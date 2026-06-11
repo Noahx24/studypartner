@@ -1,13 +1,13 @@
 import React from 'react';
-import { format, addDays, isAfter, parseISO } from 'date-fns';
-import { ChevronRight, Calendar } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import { ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function UpcomingPreview({ sessions }) {
-  const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+  const today = format(new Date(), 'yyyy-MM-dd');
   const upcoming = sessions
-    .filter(s => s.date && isAfter(parseISO(s.date), new Date()) && s.date !== format(new Date(), 'yyyy-MM-dd'))
-    .sort((a, b) => a.date.localeCompare(b.date))
+    .filter(s => s.session_date && s.session_date > today && s.status === 'planned')
+    .sort((a, b) => a.session_date.localeCompare(b.session_date))
     .slice(0, 3);
 
   if (upcoming.length === 0) return null;
@@ -29,10 +29,10 @@ export default function UpcomingPreview({ sessions }) {
           >
             <div className="w-10 h-10 rounded-lg bg-primary/5 flex flex-col items-center justify-center flex-shrink-0">
               <span className="text-[10px] text-primary font-medium leading-none">
-                {session.date ? format(parseISO(session.date), 'MMM') : ''}
+                {session.session_date ? format(parseISO(session.session_date), 'MMM') : ''}
               </span>
               <span className="text-sm font-heading font-bold text-primary leading-none mt-0.5">
-                {session.date ? format(parseISO(session.date), 'd') : ''}
+                {session.session_date ? format(parseISO(session.session_date), 'd') : ''}
               </span>
             </div>
             <div className="flex-1 min-w-0">

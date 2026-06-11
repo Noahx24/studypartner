@@ -41,6 +41,10 @@ export type StudySession = {
   session_date: string;
   planned_minutes: number;
   status: SessionStatus;
+  // Display fields the API joins in for rendering session cards
+  title: string;
+  subject: string | null;
+  duration_minutes: number;
 };
 
 export type WeeklySummary = {

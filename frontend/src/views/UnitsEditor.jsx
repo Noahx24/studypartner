@@ -27,7 +27,6 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/api/client';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 
 /**
  * Editor for the AI-parsed Learning Units and Subtopics of a single

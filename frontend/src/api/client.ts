@@ -119,7 +119,38 @@ export const api = {
 
   getMe: () => request<UserSettings & { id: string }>('/users/me'),
 
+  updateMe: (payload: {
+    hours_per_day?: number;
+    days_per_week?: number;
+    pace?: string;
+    max_daily_hours?: number;
+  }) =>
+    request<UserSettings & { id: string }>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteAccount: () =>
+    request<{ status: string; rows_removed: Record<string, number> }>('/users/me', {
+      method: 'DELETE',
+    }),
+
   getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
+
+  listModules: () =>
+    request<{
+      modules: Array<{
+        id: string;
+        name: string;
+        module_type: 'year' | 'semester';
+        assessments: Array<{ id: string; title: string; due_date: string; weight: number }>;
+        unit_count: number;
+        progress_percent: number;
+      }>;
+    }>('/modules'),
+
+  deleteModule: (moduleId: string) =>
+    request<void>(`/modules/${moduleId}`, { method: 'DELETE' }),
 
   createModule: (userId: string, module: ModuleForm) =>
     request<{ status: string; module_id: string }>('/modules', {
@@ -234,8 +265,16 @@ export const api = {
   getDailyPlan: (userId: string, forDate = isoDate(new Date())) =>
     request<DailyPlanResponse>(`/plans/daily/${userId}/${forDate}`),
 
+  getPlanRange: (userId: string, start: string, end: string) =>
+    request<DailyPlanResponse & { start: string; end: string }>(
+      `/plans/range/${userId}?start=${start}&end=${end}`,
+    ),
+
   completeSession: (sessionId: string) =>
     request<{ status: string; session_id: string }>(`/plans/sessions/${sessionId}/complete`, { method: 'POST' }),
+
+  missSession: (sessionId: string) =>
+    request<{ status: string; session_id: string }>(`/plans/sessions/${sessionId}/miss`, { method: 'POST' }),
 
   submitFeedback: (payload: { user_id: string; session_id: string; actual_time_minutes: number }) =>
     request<{ multiplier: number; samples: number; status: string }>('/plans/session/feedback', {

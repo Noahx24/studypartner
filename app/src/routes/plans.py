@@ -19,6 +19,7 @@ from app.storage import (
     get_user,
     get_user_multiplier,
     mark_session_complete,
+    mark_session_missed,
     save_sessions,
 )
 
@@ -49,6 +50,24 @@ def _parse_date(value: str, field: str) -> date:
         raise HTTPException(status_code=400, detail=f"Invalid {field} format (expected YYYY-MM-DD)")
 
 
+def _serialize_sessions(user_id: str, sessions: list) -> list[dict]:
+    """Session rows plus the display fields the app renders (unit title,
+    module name, duration). Keeps the raw planner fields so existing
+    consumers are unaffected."""
+    module_names = {m.id: m.name for m in get_modules(user_id)}
+    unit_titles = {u.id: u.title for u in get_units_for_user(user_id)}
+    return [
+        s.__dict__
+        | {
+            "session_date": s.session_date.isoformat(),
+            "title": unit_titles.get(s.unit_id) or module_names.get(s.module_id) or "Study session",
+            "subject": module_names.get(s.module_id),
+            "duration_minutes": s.planned_minutes,
+        }
+        for s in sessions
+    ]
+
+
 @router.post("/generate")
 def generate_plan_endpoint(
     body: GeneratePlanRequest,
@@ -73,7 +92,7 @@ def generate_plan_endpoint(
     return {
         "week_start": plan.week_start.isoformat(),
         "week_end": plan.week_end.isoformat(),
-        "sessions": [s.__dict__ | {"session_date": s.session_date.isoformat()} for s in plan.sessions],
+        "sessions": _serialize_sessions(body.user_id, plan.sessions),
         "summaries": [s.__dict__ for s in plan.summaries],
         "pace_feedback": {
             "multiplier": round(multiplier, 3),
@@ -96,8 +115,31 @@ def daily_plan_endpoint(
     if current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
     d = _parse_date(for_date, "for_date")
-    sessions = [s for s in get_sessions(user_id, d, d) if s.status == "planned"]
-    return {"date": for_date, "sessions": [s.__dict__ | {"session_date": s.session_date.isoformat()} for s in sessions]}
+    # All statuses, not just planned — the dashboard shows completed
+    # sessions (and computes streaks) alongside the to-do list.
+    sessions = get_sessions(user_id, d, d)
+    return {"date": for_date, "sessions": _serialize_sessions(user_id, sessions)}
+
+
+@router.get("/range/{user_id}")
+def range_plan_endpoint(
+    user_id: str,
+    start: str,
+    end: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Sessions across a date range — feeds the calendar and the
+    multi-day study-plan view."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    start_d = _parse_date(start, "start")
+    end_d = _parse_date(end, "end")
+    if end_d < start_d:
+        raise HTTPException(status_code=400, detail="end must be on or after start")
+    if (end_d - start_d).days > 366:
+        raise HTTPException(status_code=400, detail="Range too large (max 366 days)")
+    sessions = get_sessions(user_id, start_d, end_d)
+    return {"start": start, "end": end, "sessions": _serialize_sessions(user_id, sessions)}
 
 
 @router.post("/sessions/{session_id}/complete")
@@ -105,8 +147,23 @@ def complete_session_endpoint(
     session_id: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    mark_session_complete(session_id)
+    # 404 (not 403) when the session belongs to someone else — don't
+    # confirm that a guessed ID exists.
+    if not mark_session_complete(session_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Session not found")
     return {"status": "completed", "session_id": session_id}
+
+
+@router.post("/sessions/{session_id}/miss")
+def miss_session_endpoint(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Mark a planned session missed. The client typically follows up
+    with /plans/reschedule so the un-studied unit gets replanned."""
+    if not mark_session_missed(session_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Session not found or not planned")
+    return {"status": "missed", "session_id": session_id}
 
 
 @router.post("/session/feedback")
@@ -151,6 +208,6 @@ def reschedule_endpoint(
     return {
         "week_start": plan.week_start.isoformat(),
         "week_end": plan.week_end.isoformat(),
-        "sessions": [s.__dict__ | {"session_date": s.session_date.isoformat()} for s in plan.sessions],
+        "sessions": _serialize_sessions(body.user_id, plan.sessions),
         "summaries": [s.__dict__ for s in plan.summaries],
     }

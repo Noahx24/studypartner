@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { addDays, format } from 'date-fns';
 import { useAuth } from '@/lib/AuthContext';
 import { api } from '@/api/client';
 import GeneratePlanButton from '../components/plan/GeneratePlanButton';
@@ -18,15 +19,47 @@ export default function StudyPlan() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
+  // Two weeks from today — the generated plan spans a week, so this
+  // always covers the current plan plus any spillover reschedules.
   const { data, isLoading } = useQuery({
     queryKey: ['sessions', user?.id],
-    queryFn: () => api.getDailyPlan(user.id),
+    queryFn: () =>
+      api.getPlanRange(
+        user.id,
+        format(new Date(), 'yyyy-MM-dd'),
+        format(addDays(new Date(), 13), 'yyyy-MM-dd'),
+      ),
     enabled: !!user,
   });
 
   const sessions = data?.sessions ?? [];
   const groupedSessions = groupBy(sessions, 'session_date');
   const sortedDates = Object.keys(groupedSessions).sort();
+
+  const refetchPlans = () => {
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    queryClient.invalidateQueries({ queryKey: ['daily-plan'] });
+  };
+
+  const handleComplete = async (session) => {
+    try {
+      await api.completeSession(session.id);
+    } catch {
+      // Refetch reconciles UI with server state either way.
+    }
+    refetchPlans();
+  };
+
+  // Skip = mark missed, then replan the remaining units around it.
+  const handleMiss = async (session) => {
+    try {
+      await api.missSession(session.id);
+      await api.reschedule({ user_id: user.id });
+    } catch {
+      // Refetch reconciles UI with server state either way.
+    }
+    refetchPlans();
+  };
 
   if (isLoading) {
     return (
@@ -71,8 +104,8 @@ export default function StudyPlan() {
               key={date}
               date={date}
               sessions={groupedSessions[date]}
-              onComplete={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
-              onMiss={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
+              onComplete={handleComplete}
+              onMiss={handleMiss}
             />
           ))}
         </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { Flame, Target } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/lib/AuthContext';
 
 const MOTIVATIONAL = [
   "Every session counts. Keep going.",
@@ -30,11 +30,9 @@ export default function TodayHeader({ sessionsToday, completedToday, streak }) {
   const progress = sessionsToday > 0 ? Math.round((completedToday / sessionsToday) * 100) : 0;
   const motivation = getMotivation(streak);
 
-  const { data: user } = useQuery({
-    queryKey: ['me'],
-  });
+  const { user } = useAuth();
 
-  const firstName = user?.full_name?.split(' ')[0] || 'there';
+  const firstName = user?.name?.split(' ')[0] || 'there';
   const hour = today.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
