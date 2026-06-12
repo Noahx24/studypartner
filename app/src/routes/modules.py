@@ -14,6 +14,7 @@ from app.src.utils.ratelimit import limiter
 from app.storage import (
     add_assessment,
     add_module,
+    delete_module,
     get_assessments_for_module,
     get_learning_units_for_module,
     get_module_content,
@@ -50,25 +51,41 @@ def _is_exam(title: str) -> bool:
 
 @router.get("/modules")
 def list_modules_endpoint(current_user: User = Depends(get_current_user)) -> dict:
-    """All modules for the current user, with the next exam and the next
-    assignment deadline kept separate so the UI can label them correctly.
-    Deliberately tiny — this is the mobile shell's primary list view."""
+    """Modules for the signed-in user — one call renders the Modules screen.
+
+    Carries study-unit progress plus the next exam and next assignment
+    deadline kept separate, so the UI can label exams and assignments
+    distinctly. Deliberately small: the mobile shell's primary list view."""
     today = date.today()
-    modules = []
+    out = []
     for m in get_modules(current_user.id):
-        upcoming = [a for a in get_assessments_for_module(m.id) if a.due_date >= today]
+        units = get_module_study_units(m.id)["study_units"]
+        completed = sum(1 for u in units if u["status"] == "completed")
+        assessments = get_assessments_for_module(m.id)
+        upcoming = [a for a in assessments if a.due_date >= today]
         exams = sorted(a.due_date for a in upcoming if _is_exam(a.title))
         assignments = sorted(a.due_date for a in upcoming if not _is_exam(a.title))
-        modules.append(
+        out.append(
             {
                 "id": m.id,
                 "name": m.name,
                 "module_type": m.module_type.value,
                 "next_exam_date": exams[0].isoformat() if exams else None,
                 "next_assignment_date": assignments[0].isoformat() if assignments else None,
+                "assessments": [
+                    {
+                        "id": a.id,
+                        "title": a.title,
+                        "due_date": a.due_date.isoformat(),
+                        "weight": a.weight,
+                    }
+                    for a in assessments
+                ],
+                "unit_count": len(units),
+                "progress_percent": round(100 * completed / len(units)) if units else 0,
             }
         )
-    return {"modules": modules}
+    return {"modules": out}
 
 
 @router.post("/modules")
@@ -109,11 +126,23 @@ def list_assessments_endpoint(current_user: User = Depends(get_current_user)) ->
     return {"assessments": assessments}
 
 
+@router.delete("/modules/{module_id}", status_code=204)
+def delete_module_endpoint(
+    module_id: str,
+    current_user: User = Depends(get_current_user),
+) -> None:
+    ensure_module_owned(module_id, current_user)
+    delete_module(module_id)
+
+
 @router.post("/assessments")
 def add_assessment_endpoint(
     body: CreateAssessmentRequest,
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    # add_assessment upserts by id — without this check any authenticated
+    # user could attach or rewrite assessments on someone else's module.
+    ensure_module_owned(body.module_id, current_user)
     try:
         due = date.fromisoformat(body.due_date)
     except ValueError:

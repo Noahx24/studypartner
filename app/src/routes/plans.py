@@ -54,6 +54,24 @@ def _parse_date(value: str, field: str) -> date:
         raise HTTPException(status_code=400, detail=f"Invalid {field} format (expected YYYY-MM-DD)")
 
 
+def _serialize_sessions(user_id: str, sessions: list) -> list[dict]:
+    """Session rows plus the display fields the app renders (unit title,
+    module name, duration). Keeps the raw planner fields so existing
+    consumers are unaffected."""
+    module_names = {m.id: m.name for m in get_modules(user_id)}
+    unit_titles = {u.id: u.title for u in get_units_for_user(user_id)}
+    return [
+        s.__dict__
+        | {
+            "session_date": s.session_date.isoformat(),
+            "title": unit_titles.get(s.unit_id) or module_names.get(s.module_id) or "Study session",
+            "subject": module_names.get(s.module_id),
+            "duration_minutes": s.planned_minutes,
+        }
+        for s in sessions
+    ]
+
+
 @router.post("/generate")
 def generate_plan_endpoint(
     body: GeneratePlanRequest,
@@ -78,7 +96,7 @@ def generate_plan_endpoint(
     return {
         "week_start": plan.week_start.isoformat(),
         "week_end": plan.week_end.isoformat(),
-        "sessions": [s.__dict__ | {"session_date": s.session_date.isoformat()} for s in plan.sessions],
+        "sessions": _serialize_sessions(body.user_id, plan.sessions),
         "summaries": [s.__dict__ for s in plan.summaries],
         "pace_feedback": {
             "multiplier": round(multiplier, 3),
@@ -121,25 +139,31 @@ def daily_plan_endpoint(
     if current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
     d = _parse_date(for_date, "for_date")
-    sessions = [s for s in get_sessions(user_id, d, d) if s.status == "planned"]
+    # All statuses, not just planned — the dashboard shows completed
+    # sessions (and computes streaks) alongside the to-do list.
+    sessions = get_sessions(user_id, d, d)
     return {"date": for_date, "sessions": _serialize_sessions(user_id, sessions)}
 
 
 @router.get("/range/{user_id}")
-def sessions_range_endpoint(
+def range_plan_endpoint(
     user_id: str,
-    from_date: str,
-    to_date: str,
+    start: str,
+    end: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """All sessions (any status) in [from_date, to_date] — the calendar
-    month view needs completed ones too, to mark progress dots."""
+    """Sessions across a date range (any status) — feeds the calendar and
+    the multi-day study-plan view; completed ones mark progress dots."""
     if current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    d1 = _parse_date(from_date, "from_date")
-    d2 = _parse_date(to_date, "to_date")
-    sessions = get_sessions(user_id, d1, d2)
-    return {"sessions": _serialize_sessions(user_id, sessions)}
+    start_d = _parse_date(start, "start")
+    end_d = _parse_date(end, "end")
+    if end_d < start_d:
+        raise HTTPException(status_code=400, detail="end must be on or after start")
+    if (end_d - start_d).days > 366:
+        raise HTTPException(status_code=400, detail="Range too large (max 366 days)")
+    sessions = get_sessions(user_id, start_d, end_d)
+    return {"start": start, "end": end, "sessions": _serialize_sessions(user_id, sessions)}
 
 
 @router.post("/sessions/{session_id}/complete")
@@ -147,18 +171,33 @@ def complete_session_endpoint(
     session_id: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    mark_session_complete(session_id)
+    # 404 (not 403) when the session belongs to someone else — don't
+    # confirm that a guessed ID exists.
+    if not mark_session_complete(session_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Session not found")
     return {"status": "completed", "session_id": session_id}
 
 
+@router.post("/sessions/{session_id}/miss")
+def miss_session_endpoint(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Mark a planned session missed. It then shows up under Catch up,
+    where the student can reschedule it into free time."""
+    if not mark_session_missed(session_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Session not found or not planned")
+    return {"status": "missed", "session_id": session_id}
+
+
+# Backwards-compatible alias: the mobile client calls /skip.
 @router.post("/sessions/{session_id}/skip")
 def skip_session_endpoint(
     session_id: str,
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Mark a session missed. It then shows up under Catch up, where the
-    student can reschedule it into free time."""
-    mark_session_missed(session_id)
+    if not mark_session_missed(session_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Session not found or not planned")
     return {"status": "missed", "session_id": session_id}
 
 

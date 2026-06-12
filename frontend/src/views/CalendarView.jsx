@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval, getDay,
-  isSameMonth, isToday, parseISO, isSameDay, addMonths, subMonths,
+  isToday, isSameDay, addMonths, subMonths,
 } from 'date-fns';
 import { ChevronLeft, ChevronRight, CheckCircle2, Clock, GraduationCap, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';

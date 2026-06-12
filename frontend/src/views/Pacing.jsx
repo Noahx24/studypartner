@@ -35,7 +35,6 @@ export default function Pacing() {
   });
 
   const m = data?.multiplier;
-  const overall = paceLabel(m);
   const completedDays = (data?.consistency ?? []).filter((d) => d.completed > 0).length;
   const headline =
     m == null || data?.samples < 1

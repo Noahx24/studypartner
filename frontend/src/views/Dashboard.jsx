@@ -1,14 +1,13 @@
 import React, { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { format, parseISO, differenceInDays } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import TodayHeader from '../components/TodayHeader';
 import SessionCard from '../components/SessionCard';
 import UpcomingPreview from '../components/UpcomingPreview';
 import { AnimatePresence } from 'framer-motion';
-import { BookOpen, AlertTriangle, Calendar } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { api } from '@/api/client';
 
@@ -17,14 +16,15 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const today = format(new Date(), 'yyyy-MM-dd');
 
+  // A week of sessions: today's list plus the "Coming Up" preview.
   const { data } = useQuery({
     queryKey: ['daily-plan', user?.id, today],
-    queryFn: () => api.getDailyPlan(user.id, today),
+    queryFn: () => api.getPlanRange(user.id, today, format(addDays(new Date(), 7), 'yyyy-MM-dd')),
     enabled: !!user,
   });
 
   const allSessions = data?.sessions ?? [];
-  const todaySessions = allSessions;
+  const todaySessions = allSessions.filter(s => s.session_date === today);
   const scheduledToday = todaySessions.filter(s => s.status === 'planned');
   const doneToday = todaySessions.filter(s => s.status === 'completed');
   const completedToday = doneToday.length;
@@ -52,6 +52,8 @@ export default function Dashboard() {
     api.completeSession(session.id).then(invalidate);
   };
 
+  // Skip = mark missed; it then surfaces under Catch up, where the student
+  // can reschedule it into free time (rather than auto-replanning here).
   const handleMiss = (session) => {
     api.skipSession(session.id).then(invalidate);
   };

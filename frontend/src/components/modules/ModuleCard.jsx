@@ -1,33 +1,13 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FileText, BookOpen, File, GraduationCap, Presentation, MoreVertical, Trash2, ChevronDown, ChevronUp, Calendar, ClipboardCheck, Pencil } from 'lucide-react';
+import { MoreVertical, Trash2, ChevronDown, ChevronUp, Calendar, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { moduleColor, moduleCode } from '@/lib/moduleColors';
-
-const typeIcons = {
-  notes: FileText, textbook: BookOpen, pdf: File,
-  past_paper: GraduationCap, slides: Presentation, other: File,
-};
-
-const priorityColors = {
-  low: 'bg-muted-foreground/20 text-muted-foreground',
-  medium: 'bg-amber-100 text-amber-700',
-  high: 'bg-orange-100 text-orange-700',
-  critical: 'bg-destructive/10 text-destructive',
-};
-
-const complexityColors = {
-  light: 'text-emerald-600',
-  moderate: 'text-amber-600',
-  heavy: 'text-red-600',
-};
 
 function DeadlineBadge({ date, label }) {
   if (!date) return null;

@@ -7,8 +7,7 @@ import { Input } from '@/components/ui/input';
 import ModuleCard from '../components/modules/ModuleCard';
 import AddModuleDialog from '../components/modules/AddModuleDialog';
 import FetchFromMyModulesButton from '../components/modules/FetchFromMyModulesButton';
-import { format, parseISO, differenceInDays } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { api } from '@/api/client';
 import { modulesRepo } from '@/db/repos';
@@ -22,9 +21,9 @@ export default function Modules() {
   const { data } = useQuery({
     queryKey: ['modules', user?.id],
     queryFn: async () => {
-      // Server first (tiny payload: id/name/type/next deadline per module),
-      // refreshing the IndexedDB cache; offline falls back to the cache so
-      // the list still renders with no connection.
+      // Server first (small payload per module), refreshing the IndexedDB
+      // cache; offline falls back to the cache so the list still renders
+      // with no connection.
       try {
         const { modules } = await api.listModules();
         await modulesRepo.upsertMany(
@@ -35,6 +34,8 @@ export default function Modules() {
             module_type: m.module_type,
             next_exam_date: m.next_exam_date,
             next_assignment_date: m.next_assignment_date,
+            progress_percent: m.progress_percent,
+            unit_count: m.unit_count,
           })),
         );
         return { modules };
@@ -55,7 +56,13 @@ export default function Modules() {
     [m.next_exam_date, m.next_assignment_date].filter(Boolean).sort()[0] || '9999-12-31';
   const sorted = [...filtered].sort((a, b) => nextDeadline(a).localeCompare(nextDeadline(b)));
 
-  const handleDelete = () => {
+  const handleDelete = async (module) => {
+    try {
+      await api.deleteModule(module.id);
+      toast.success(`Deleted ${module.title}`);
+    } catch (err) {
+      toast.error(err.message || 'Delete failed');
+    }
     queryClient.invalidateQueries({ queryKey: ['modules'] });
   };
 

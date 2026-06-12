@@ -21,7 +21,7 @@
 import { Capacitor } from '@capacitor/core';
 import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
 
-const TOKEN_KEY = 'studypartner_token';
+export const TOKEN_KEY = 'studypartner_token';
 
 let cachedToken: string | null = null;
 let loaded = false;

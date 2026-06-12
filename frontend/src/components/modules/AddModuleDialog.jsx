@@ -101,7 +101,7 @@ function BasicInfoStep({ form, setForm, file, onFileChange, onNext, loading }) {
 }
 
 // Step 2: Confirm AI extracted data
-function ConfirmStep({ analysis, form, onConfirm, onRegenerate, onFeedback, feedback, setFeedback, loading }) {
+function ConfirmStep({ analysis, onConfirm, onRegenerate, feedback, setFeedback, loading }) {
   const [showUnits, setShowUnits] = useState(true);
   return (
     <div className="space-y-4">

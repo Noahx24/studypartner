@@ -80,7 +80,10 @@ def apply(user_id: str, ops: list[dict[str, Any]], last_pulled_at: str | None) -
 
 def _dispatch(entity: str | None, entity_id: str | None, action: str | None, payload: dict, user_id: str) -> None:
     if entity == "session" and action == "complete" and entity_id:
-        mark_session_complete(entity_id)
+        # Ownership-scoped: a synced op must not complete another
+        # user's session just because the ID is known.
+        if not mark_session_complete(entity_id, user_id=user_id):
+            raise ValueError("session not found")
         return
 
     if entity == "user_selection" and action == "upsert" and entity_id:

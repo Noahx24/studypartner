@@ -132,6 +132,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  deleteAccount: () =>
+    request<{ status: string; rows_removed: Record<string, number> }>('/users/me', {
+      method: 'DELETE',
+    }),
+
   getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
 
   listModules: () =>
@@ -140,9 +145,16 @@ export const api = {
         id: string;
         name: string;
         module_type: 'year' | 'semester';
-        next_due_date: string | null;
+        next_exam_date: string | null;
+        next_assignment_date: string | null;
+        assessments: Array<{ id: string; title: string; due_date: string; weight: number }>;
+        unit_count: number;
+        progress_percent: number;
       }>;
     }>('/modules'),
+
+  deleteModule: (moduleId: string) =>
+    request<void>(`/modules/${moduleId}`, { method: 'DELETE' }),
 
   createModule: (userId: string, module: ModuleForm) =>
     request<{ status: string; module_id: string }>('/modules', {
@@ -257,9 +269,9 @@ export const api = {
   getDailyPlan: (userId: string, forDate = isoDate(new Date())) =>
     request<DailyPlanResponse>(`/plans/daily/${userId}/${forDate}`),
 
-  getSessionsRange: (userId: string, fromDate: string, toDate: string) =>
-    request<DailyPlanResponse>(
-      `/plans/range/${userId}?from_date=${fromDate}&to_date=${toDate}`,
+  getSessionsRange: (userId: string, start: string, end: string) =>
+    request<DailyPlanResponse & { start: string; end: string }>(
+      `/plans/range/${userId}?start=${start}&end=${end}`,
     ),
 
   listAssessments: () =>
@@ -270,6 +282,7 @@ export const api = {
         module_name: string;
         title: string;
         due_date: string;
+        kind: string;
         status: string;
       }>;
     }>('/assessments'),
