@@ -377,9 +377,24 @@ def fetch_resource_bytes(user_id: str, url: str) -> bytes:
     full = f"{url}{sep}token={urllib.parse.quote(account.token)}"
     try:
         with urllib.request.urlopen(full, timeout=30) as resp:
-            return resp.read()
+            content_type = resp.headers.get("Content-Type", "")
+            data = resp.read()
     except Exception as exc:
         raise MoodleError(f"Resource fetch failed: {exc}") from exc
+
+    # pluginfile.php returns HTTP 200 with a JSON error body when the token
+    # is expired or lacks access ({"errorcode":"requireloginerror",...}).
+    # Without this guard that JSON gets ingested as if it were the file.
+    if "application/json" in content_type or (
+        data[:1] in (b"{", b"[") and b'"errorcode"' in data[:512]
+    ):
+        try:
+            payload = json.loads(data.decode("utf-8", "replace"))
+            message = payload.get("error") or payload.get("message") or "access denied"
+        except (json.JSONDecodeError, AttributeError):
+            message = "Moodle returned an error instead of the file"
+        raise MoodleError(f"Resource not accessible (reconnect Moodle): {message}")
+    return data
 
 
 def _filename_for_ingest(r: MoodleResource) -> str | None:

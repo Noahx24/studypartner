@@ -56,6 +56,17 @@ def content_to_units(module_id: str, raw_text: str, pace: Pace, custom_minutes_p
     return units
 
 
+_GENERIC_SUBTOPIC = {"introduction", "conclusion", "summary", "overview", "outcomes", "learning outcomes"}
+
+
+def _is_noise_title(title: str) -> bool:
+    """PDF extraction sometimes lifts a bare page number ('15') or a stray
+    fragment as a subtopic heading. Treat digits-only / ultra-short titles
+    as noise so they don't become their own study session."""
+    t = (title or "").strip()
+    return len(t) < 3 or t.replace(".", "").isdigit()
+
+
 def units_from_learning_units(
     module_id: str,
     source_text: str,
@@ -64,42 +75,66 @@ def units_from_learning_units(
     custom_minutes_per_500_words: int | None = None,
     user_multiplier: float = 1.0,
 ) -> list[StudyUnit]:
-    """Build planner StudyUnits out of the parsed LearningUnit tree so
-    sessions carry the unit's real name ("Domicile — part 2"), not a
-    synthetic "Topic 1.13" label nobody can act on.
+    """Build planner StudyUnits from the parsed LearningUnit → Subtopic tree
+    so a session is a real subtopic ("What is law?: Religion"), not an
+    arbitrary "part 1" word-chunk.
 
-    Long units are still split into ~550-word parts so a session stays a
-    sit-down-able chunk; each part keeps the human title with a part
-    suffix only when there is more than one.
+    Each meaningful subtopic becomes one StudyUnit. Noise subtopics (bare
+    page numbers the PDF parser picked up) are merged into the previous one
+    so their content still counts but they don't spawn empty sessions. A
+    learning unit with no usable subtopics falls back to a single unit named
+    after the unit itself.
     """
     units: list[StudyUnit] = []
-    for lu in sorted(learning_units, key=lambda u: u.ordinal):
-        span = lu.source_span or {}
-        body = source_text[span.get("start_char", 0):span.get("end_char", 0)]
-        words = re.findall(r"\w+", body)
-        if not words:
-            continue
-        parts = [words[i : i + 550] for i in range(0, len(words), 550)]
-        for part_idx, part in enumerate(parts, start=1):
-            long_ratio = sum(1 for w in part if len(w) > 8) / len(part)
-            complexity = round(min(2.0, 0.9 + long_ratio + (sum(len(w) for w in part) / len(part) / 12)), 2)
-            minutes = estimate_time(len(part), complexity, pace, custom_minutes_per_500_words, user_multiplier)
-            title = lu.topic if len(parts) == 1 else f"{lu.topic} — part {part_idx}"
-            # Zero-padded sequence so lexical id sorting (used by the planner
-            # and session display) matches document order: unit-0002 < unit-0010.
-            seq = len(units) + 1
-            units.append(
-                StudyUnit(
-                    id=f"{module_id}-unit-{seq:04d}",
-                    module_id=module_id,
-                    topic_id=f"{module_id}-topic-{lu.ordinal:04d}",
-                    title=title,
-                    estimated_minutes=minutes,
-                    source_word_count=len(part),
-                    complexity_score=complexity,
-                    status=UnitStatus.not_started,
-                )
+
+    def add(title: str, lu: LearningUnit, word_count: int, effort: float | None) -> None:
+        seq = len(units) + 1
+        minutes = (
+            effort_to_minutes(effort, pace, custom_minutes_per_500_words, user_multiplier)
+            if effort is not None
+            else estimate_time(word_count, 1.0, pace, custom_minutes_per_500_words, user_multiplier)
+        )
+        units.append(
+            StudyUnit(
+                id=f"{module_id}-unit-{seq:04d}",
+                module_id=module_id,
+                topic_id=f"{module_id}-topic-{lu.ordinal:04d}",
+                title=title,
+                estimated_minutes=minutes,
+                source_word_count=word_count,
+                complexity_score=1.0,
+                status=UnitStatus.not_started,
             )
+        )
+
+    for lu in sorted(learning_units, key=lambda u: u.ordinal):
+        subs = sorted(lu.subtopics, key=lambda s: s.ordinal)
+        # Merge noise headings into the nearest preceding real subtopic.
+        merged: list[tuple[str, int, float]] = []  # (title, word_count, effort)
+        for s in subs:
+            if _is_noise_title(s.title) and merged:
+                title, wc, eff = merged[-1]
+                merged[-1] = (title, wc + (s.word_count or 0), eff + (s.effort_score or 0))
+            elif not _is_noise_title(s.title):
+                merged.append((s.title, s.word_count or 0, s.effort_score or 0))
+
+        if not merged:
+            # No usable subtopics — one session named after the unit.
+            span = lu.source_span or {}
+            wc = len(re.findall(r"\w+", source_text[span.get("start_char", 0):span.get("end_char", 0)]))
+            if wc:
+                add(lu.topic, lu, wc, None)
+            continue
+
+        for title, wc, eff in merged:
+            # Prefix generic subtopic names with the unit so "Introduction"
+            # reads "What is law?: Introduction" and stays distinguishable.
+            label = (
+                f"{lu.topic}: {title}"
+                if title.strip().lower() in _GENERIC_SUBTOPIC
+                else title
+            )
+            add(label, lu, wc, eff)
     return units
 
 

@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, CalendarDays, ClipboardList, UserCircle, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, BookOpen, ClipboardList, UserCircle, Moon, Sun } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
+// Calendar lives inside Plan (List / Calendar toggle), so it isn't a
+// separate tab. Order: Today → Plan → Modules → Profile.
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Today' },
-  { path: '/modules', icon: BookOpen, label: 'Modules' },
-  { path: '/calendar', icon: CalendarDays, label: 'Calendar' },
   { path: '/plan', icon: ClipboardList, label: 'Plan' },
+  { path: '/modules', icon: BookOpen, label: 'Modules' },
   { path: '/profile', icon: UserCircle, label: 'Profile' },
 ];
 
