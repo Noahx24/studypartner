@@ -15,10 +15,10 @@ export default function GeneratePlanButton({ onGenerated }) {
     try {
       const plan = await api.generatePlan(user.id);
       const count = plan.sessions?.length ?? 0;
-      toast.success(`Generated ${count} sessions for this week!`);
+      toast.success(`Your week is planned — ${count} study sessions ready.`);
       onGenerated?.();
     } catch (err) {
-      toast.error(err.message || 'Could not generate plan');
+      toast.error(err.message || "We couldn't build your plan. Please try again.");
     } finally {
       setGenerating(false);
     }
@@ -32,9 +32,9 @@ export default function GeneratePlanButton({ onGenerated }) {
       size="lg"
     >
       {generating ? (
-        <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Generating Plan...</>
+        <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Planning your week…</>
       ) : (
-        <><Sparkles className="w-5 h-5 mr-2" /> Generate Deadline-Driven Plan</>
+        <><Sparkles className="w-5 h-5 mr-2" /> Plan my week</>
       )}
     </Button>
   );

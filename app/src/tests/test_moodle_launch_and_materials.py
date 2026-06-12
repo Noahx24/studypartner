@@ -115,10 +115,12 @@ def test_launch_rejects_full_url_as_urlscheme():
     assert r.status_code == 422, r.text
 
 
-def _build_moodle_token_blob(passport: str, siteid: str, ws_token: str) -> str:
+def _build_moodle_token_blob(passport: str, site_url: str, ws_token: str) -> str:
     """Replicate Moodle's launch return format: base64(<sig>:::<token>:::)
-    where sig = md5(siteid + passport)."""
-    sig = hashlib.md5(f"{siteid}{passport}".encode("utf-8")).hexdigest()
+    where sig = md5(wwwroot + passport). The wwwroot is the site URL, which
+    the WS exposes as `siteurl` (Moodle's tool_mobile/launch.php signs with
+    $CFG->wwwroot)."""
+    sig = hashlib.md5(f"{site_url}{passport}".encode("utf-8")).hexdigest()
     raw = f"{sig}:::{ws_token}:::".encode("utf-8")
     return base64.b64encode(raw).decode("utf-8")
 
@@ -131,7 +133,12 @@ def test_launch_callback_full_round_trip(monkeypatch):
     # Stub Moodle's WS so accept_launch_token can validate.
     def fake_ws(base_url, ws_tok, function, params=None):
         assert function == "core_webservice_get_site_info"
-        return {"siteid": 42, "userid": 1001, "sitename": "UniSA Moodle"}
+        return {
+            "siteid": 1,
+            "siteurl": "https://lms.unisa.ac.za",
+            "userid": 1001,
+            "sitename": "UniSA Moodle",
+        }
 
     monkeypatch.setattr(moodle_service, "_ws_call", fake_ws)
 
@@ -145,7 +152,7 @@ def test_launch_callback_full_round_trip(monkeypatch):
     ).json()
     passport = start["passport"]
 
-    blob = _build_moodle_token_blob(passport, "42", "ws-token-abc")
+    blob = _build_moodle_token_blob(passport, "https://lms.unisa.ac.za", "ws-token-abc")
     r = client.post(
         "/moodle/launch/callback",
         json={"passport": passport, "token": blob},
@@ -159,7 +166,7 @@ def test_launch_callback_full_round_trip(monkeypatch):
 def test_launch_callback_rejects_bad_passport():
     _fresh_db()
     client = TestClient(app)
-    blob = _build_moodle_token_blob("never-issued", "42", "ws-token")
+    blob = _build_moodle_token_blob("never-issued", "https://x", "ws-token")
     r = client.post(
         "/moodle/launch/callback",
         json={"passport": "never-issued-by-us", "token": blob},
@@ -176,14 +183,14 @@ def test_launch_callback_rejects_replay(monkeypatch):
     monkeypatch.setattr(
         moodle_service,
         "_ws_call",
-        lambda *a, **k: {"siteid": 7, "userid": 1, "sitename": "S"},
+        lambda *a, **k: {"siteid": 1, "siteurl": "https://x", "userid": 1, "sitename": "S"},
     )
     start = client.post(
         "/moodle/launch",
         headers={"Authorization": f"Bearer {token}"},
         json={"urlscheme": "studypartner", "base_url": "https://x"},
     ).json()
-    blob = _build_moodle_token_blob(start["passport"], "7", "ws-tok")
+    blob = _build_moodle_token_blob(start["passport"], "https://x", "ws-tok")
     payload = {"passport": start["passport"], "token": blob}
     first = client.post("/moodle/launch/callback", json=payload)
     second = client.post("/moodle/launch/callback", json=payload)
@@ -198,15 +205,15 @@ def test_launch_callback_rejects_signature_mismatch(monkeypatch):
     monkeypatch.setattr(
         moodle_service,
         "_ws_call",
-        lambda *a, **k: {"siteid": 7, "userid": 1, "sitename": "S"},
+        lambda *a, **k: {"siteid": 1, "siteurl": "https://x", "userid": 1, "sitename": "S"},
     )
     start = client.post(
         "/moodle/launch",
         headers={"Authorization": f"Bearer {token}"},
         json={"urlscheme": "studypartner", "base_url": "https://x"},
     ).json()
-    # Sign with the WRONG siteid — simulates a forged blob.
-    bad_blob = _build_moodle_token_blob(start["passport"], "999", "ws-tok")
+    # Sign with the WRONG site URL — simulates a forged blob.
+    bad_blob = _build_moodle_token_blob(start["passport"], "https://evil.example", "ws-tok")
     r = client.post(
         "/moodle/launch/callback",
         json={"passport": start["passport"], "token": bad_blob},

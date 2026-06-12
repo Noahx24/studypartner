@@ -25,6 +25,7 @@ from app.storage import (
     revoke_user_tokens,
     save_password_reset_token,
     update_password_hash,
+    update_user_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,39 @@ def reset_password_endpoint(request: Request, body: ResetPasswordRequest) -> dic
 def get_me(current_user: User = Depends(get_current_user)) -> dict:
     """Return the profile of the authenticated user."""
     return _serialize(current_user)
+
+
+class UpdateMeRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    hours_per_day: float | None = Field(default=None, gt=0, le=24)
+    days_per_week: int | None = Field(default=None, ge=1, le=7)
+    pace: str | None = None
+    custom_minutes_per_500_words: int | None = Field(default=None, gt=0, le=600)
+    max_daily_hours: float | None = Field(default=None, gt=0, le=24)
+
+
+@router.patch("/me")
+def update_me(body: UpdateMeRequest, current_user: User = Depends(get_current_user)) -> dict:
+    """Partial update of the user's study settings (onboarding + profile).
+
+    Email and password are deliberately NOT updatable here — credential
+    changes go through the password-reset flow so they stay auditable.
+    """
+    if body.pace is not None:
+        try:
+            Pace(body.pace)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Unknown pace '{body.pace}'")
+    update_user_settings(
+        current_user.id,
+        name=body.name,
+        hours_per_day=body.hours_per_day,
+        days_per_week=body.days_per_week,
+        pace=body.pace,
+        custom_minutes_per_500_words=body.custom_minutes_per_500_words,
+        max_daily_hours=body.max_daily_hours,
+    )
+    return _serialize(get_user(current_user.id))
 
 
 @router.post("/logout")

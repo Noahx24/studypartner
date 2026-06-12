@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import ModuleCard from '../components/modules/ModuleCard';
 import AddModuleDialog from '../components/modules/AddModuleDialog';
 import FetchFromMyModulesButton from '../components/modules/FetchFromMyModulesButton';
-import { format, parseISO, differenceInDays } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
+import { modulesRepo } from '@/db/repos';
 
 export default function Modules() {
   const { user } = useAuth();
@@ -20,9 +21,27 @@ export default function Modules() {
   const { data } = useQuery({
     queryKey: ['modules', user?.id],
     queryFn: async () => {
-      // Modules are stored locally in IndexedDB via the sync layer;
-      // fall back to an empty list if the repo isn't populated yet.
-      return { modules: [] };
+      // Server first (small payload per module), refreshing the IndexedDB
+      // cache; offline falls back to the cache so the list still renders
+      // with no connection.
+      try {
+        const { modules } = await api.listModules();
+        await modulesRepo.upsertMany(
+          modules.map((m) => ({
+            id: m.id,
+            user_id: user.id,
+            name: m.name,
+            module_type: m.module_type,
+            next_exam_date: m.next_exam_date,
+            next_assignment_date: m.next_assignment_date,
+            progress_percent: m.progress_percent,
+            unit_count: m.unit_count,
+          })),
+        );
+        return { modules };
+      } catch {
+        return { modules: await modulesRepo.listForUser(user.id) };
+      }
     },
     enabled: !!user,
   });
@@ -33,13 +52,17 @@ export default function Modules() {
     m.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const sorted = [...filtered].sort((a, b) => {
-    const aDate = a.due_date || '9999-12-31';
-    const bDate = b.due_date || '9999-12-31';
-    return aDate.localeCompare(bDate);
-  });
+  const nextDeadline = (m) =>
+    [m.next_exam_date, m.next_assignment_date].filter(Boolean).sort()[0] || '9999-12-31';
+  const sorted = [...filtered].sort((a, b) => nextDeadline(a).localeCompare(nextDeadline(b)));
 
-  const handleDelete = () => {
+  const handleDelete = async (module) => {
+    try {
+      await api.deleteModule(module.id);
+      toast.success(`Deleted ${module.title}`);
+    } catch (err) {
+      toast.error(err.message || 'Delete failed');
+    }
     queryClient.invalidateQueries({ queryKey: ['modules'] });
   };
 
@@ -47,8 +70,10 @@ export default function Modules() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="font-heading text-2xl font-bold">Modules</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{modules.length} modules</p>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">Modules</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {modules.length === 0 ? 'Nothing here yet' : `${modules.length} active`}
+          </p>
         </div>
         <Button onClick={() => setDialogOpen(true)} className="rounded-xl">
           <Plus className="w-4 h-4 mr-1" /> Add
@@ -60,7 +85,7 @@ export default function Modules() {
         <Button asChild variant="outline" className="rounded-xl flex-1">
           <Link to="/modules/materials">
             <Sparkles className="w-4 h-4 mr-2" />
-            Pick materials for AI
+            Choose study materials
           </Link>
         </Button>
       </div>
@@ -93,7 +118,17 @@ export default function Modules() {
       ) : (
         <div className="space-y-3">
           {sorted.map(module => (
-            <ModuleCard key={module.id} module={module} onDelete={handleDelete} />
+            <ModuleCard
+              key={module.id}
+              module={{
+                ...module,
+                title: module.name,
+                type: module.module_type,
+                exam_date: module.next_exam_date,
+                assignment_date: module.next_assignment_date,
+              }}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}

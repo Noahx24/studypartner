@@ -23,14 +23,16 @@ export default function Login() {
     try {
       if (tab === 'login') {
         await login(form.email, form.password);
+        navigate('/');
       } else {
         await register({
           name: form.name,
           email: form.email,
           password: form.password,
         });
+        // First run: walk the new student through availability + Moodle setup.
+        navigate('/onboarding', { replace: true });
       }
-      navigate('/');
     } catch (err) {
       setError(err.message || 'Something went wrong');
     } finally {
@@ -100,11 +102,11 @@ export default function Login() {
             <Input
               id="password"
               type="password"
-              placeholder={tab === 'register' ? 'Min. 8 characters' : '••••••••'}
+              placeholder={tab === 'register' ? 'Min. 12 characters' : '••••••••'}
               value={form.password}
               onChange={set('password')}
               required
-              minLength={tab === 'register' ? 8 : undefined}
+              minLength={tab === 'register' ? 12 : undefined}
               autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
             />
           </div>

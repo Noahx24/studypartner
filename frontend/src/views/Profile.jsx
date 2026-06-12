@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, Loader2, Moon, Sun, Coffee } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Save, Loader2, Moon, LogOut, Trash2, UserCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
 
 const DAYS = [
   { key: 'monday', label: 'Monday', short: 'Mon' },
@@ -81,22 +88,72 @@ function DayRow({ day, hours, isRest, onHoursChange, onRestToggle }) {
 
 export default function Profile() {
   const queryClient = useQueryClient();
+  const { user, checkUserAuth, logout } = useAuth();
   const [hours, setHours] = useState({ ...DEFAULT_HOURS });
   const [restDays, setRestDays] = useState({ ...DEFAULT_REST });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Seed the per-day sliders from the saved aggregate settings once
+  // the profile loads: the first `days_per_week` days become active
+  // at `hours_per_day` each.
+  useEffect(() => {
+    if (!user || hydrated) return;
+    const activeDays = Math.min(Math.max(Math.round(user.days_per_week ?? 5), 1), 7);
+    const perDay = Math.min(Math.max(user.hours_per_day ?? 2, 0.5), 10);
+    const nextHours = {};
+    const nextRest = {};
+    DAYS.forEach((d, i) => {
+      const active = i < activeDays;
+      nextRest[d.key] = !active;
+      nextHours[d.key] = active ? perDay : 0;
+    });
+    setHours(nextHours);
+    setRestDays(nextRest);
+    setHydrated(true);
+  }, [user, hydrated]);
 
   const totalWeeklyHours = DAYS.reduce((sum, d) => sum + (restDays[d.key] ? 0 : hours[d.key]), 0);
 
   const handleSave = async () => {
+    const activeDays = DAYS.filter(d => !restDays[d.key]);
+    if (activeDays.length === 0) {
+      toast.error('Pick at least one study day');
+      return;
+    }
     setSaving(true);
-    const records = DAYS.map(d => ({
-      day_of_week: d.key,
-      hours_available: restDays[d.key] ? 0 : hours[d.key],
-      is_rest_day: restDays[d.key],
-    }));
-    toast.success('Schedule saved!');
-    setSaving(false);
-    queryClient.invalidateQueries({ queryKey: ['availability'] });
+    // The planner works from aggregates: study days per week, average
+    // hours on a study day, and the per-day ceiling.
+    const total = activeDays.reduce((sum, d) => sum + hours[d.key], 0);
+    const avg = Math.max(0.5, Math.round((total / activeDays.length) * 2) / 2);
+    const maxHours = Math.max(...activeDays.map(d => hours[d.key]));
+    try {
+      await api.updateMe({
+        hours_per_day: avg,
+        days_per_week: activeDays.length,
+        max_daily_hours: maxHours,
+      });
+      await checkUserAuth();
+      toast.success('Schedule saved!');
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    } catch (err) {
+      toast.error(err.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      await api.deleteAccount();
+      toast.success('Account deleted');
+      await logout();
+    } catch (err) {
+      toast.error(err.message || 'Delete failed');
+      setDeleting(false);
+    }
   };
 
   return (
@@ -144,6 +201,58 @@ export default function Profile() {
       <Button onClick={handleSave} disabled={saving} className="w-full rounded-xl h-11">
         {saving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</> : <><Save className="w-4 h-4 mr-2" /> Save Schedule</>}
       </Button>
+
+      {/* Account */}
+      <div className="mt-8">
+        <h2 className="font-heading font-semibold text-sm text-muted-foreground mb-2">Account</h2>
+        <div className="bg-card rounded-2xl border border-border/50 shadow-sm divide-y divide-border/50">
+          <div className="flex items-center gap-3 p-4">
+            <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center flex-shrink-0">
+              <UserCircle className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">{user?.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-3 p-4 text-sm font-medium hover:bg-muted/50 transition-colors"
+          >
+            <LogOut className="w-4 h-4 text-muted-foreground" /> Sign out
+          </button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                disabled={deleting}
+                className="w-full flex items-center gap-3 p-4 text-sm font-medium text-destructive hover:bg-destructive/5 transition-colors disabled:opacity-50"
+              >
+                {deleting
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Trash2 className="w-4 h-4" />} Delete account
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="max-w-md mx-4 rounded-2xl">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently removes your account, modules, uploads, study plans
+                  and packs. This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDeleteAccount}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete everything
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </div>
     </div>
   );
 }

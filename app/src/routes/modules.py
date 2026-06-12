@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -13,9 +14,12 @@ from app.src.utils.ratelimit import limiter
 from app.storage import (
     add_assessment,
     add_module,
+    delete_module,
+    get_assessments_for_module,
     get_learning_units_for_module,
     get_module_content,
     get_module_study_units,
+    get_modules,
     get_user,
 )
 
@@ -41,6 +45,49 @@ class CreateAssessmentRequest(BaseModel):
     weight: float = Field(default=1.0, ge=0, le=100)
 
 
+def _is_exam(title: str) -> bool:
+    return bool(re.search(r"exam|examination", title or "", re.IGNORECASE))
+
+
+@router.get("/modules")
+def list_modules_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+    """Modules for the signed-in user — one call renders the Modules screen.
+
+    Carries study-unit progress plus the next exam and next assignment
+    deadline kept separate, so the UI can label exams and assignments
+    distinctly. Deliberately small: the mobile shell's primary list view."""
+    today = date.today()
+    out = []
+    for m in get_modules(current_user.id):
+        units = get_module_study_units(m.id)["study_units"]
+        completed = sum(1 for u in units if u["status"] == "completed")
+        assessments = get_assessments_for_module(m.id)
+        upcoming = [a for a in assessments if a.due_date >= today]
+        exams = sorted(a.due_date for a in upcoming if _is_exam(a.title))
+        assignments = sorted(a.due_date for a in upcoming if not _is_exam(a.title))
+        out.append(
+            {
+                "id": m.id,
+                "name": m.name,
+                "module_type": m.module_type.value,
+                "next_exam_date": exams[0].isoformat() if exams else None,
+                "next_assignment_date": assignments[0].isoformat() if assignments else None,
+                "assessments": [
+                    {
+                        "id": a.id,
+                        "title": a.title,
+                        "due_date": a.due_date.isoformat(),
+                        "weight": a.weight,
+                    }
+                    for a in assessments
+                ],
+                "unit_count": len(units),
+                "progress_percent": round(100 * completed / len(units)) if units else 0,
+            }
+        )
+    return {"modules": out}
+
+
 @router.post("/modules")
 def add_module_endpoint(
     body: CreateModuleRequest,
@@ -58,11 +105,44 @@ def add_module_endpoint(
     return {"status": "created", "module_id": module.id}
 
 
+@router.get("/assessments")
+def list_assessments_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+    """Every assessment across the user's modules, for the calendar view.
+    Moodle-synced and manually added deadlines come back together."""
+    assessments = []
+    for m in get_modules(current_user.id):
+        for a in get_assessments_for_module(m.id):
+            assessments.append(
+                {
+                    "id": a.id,
+                    "module_id": m.id,
+                    "module_name": m.name,
+                    "title": a.title,
+                    "due_date": a.due_date.isoformat(),
+                    "kind": "exam" if _is_exam(a.title) else "assignment",
+                    "status": a.status.value if hasattr(a.status, "value") else a.status,
+                }
+            )
+    return {"assessments": assessments}
+
+
+@router.delete("/modules/{module_id}", status_code=204)
+def delete_module_endpoint(
+    module_id: str,
+    current_user: User = Depends(get_current_user),
+) -> None:
+    ensure_module_owned(module_id, current_user)
+    delete_module(module_id)
+
+
 @router.post("/assessments")
 def add_assessment_endpoint(
     body: CreateAssessmentRequest,
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    # add_assessment upserts by id — without this check any authenticated
+    # user could attach or rewrite assessments on someone else's module.
+    ensure_module_owned(body.module_id, current_user)
     try:
         due = date.fromisoformat(body.due_date)
     except ValueError:

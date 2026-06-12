@@ -239,8 +239,13 @@ def accept_launch_token(passport: str, encoded_token: str) -> dict:
     if not isinstance(info, dict) or "userid" not in info:
         raise MoodleError("Token rejected by Moodle")
 
-    siteid = str(info.get("siteid") or info.get("userid"))
-    expected = hashlib.md5(f"{siteid}{passport}".encode("utf-8")).hexdigest()
+    # Moodle's tool_mobile/launch.php signs the blob as md5(wwwroot + passport)
+    # — the site's wwwroot, which the WS exposes as `siteurl` (NOT `siteid`,
+    # which is the site course id and is always 1). Fall back to the base_url
+    # we sent the user to if `siteurl` is somehow absent; they are the same
+    # wwwroot in a correctly configured site.
+    site_url = (info.get("siteurl") or base_url).rstrip("/")
+    expected = hashlib.md5(f"{site_url}{passport}".encode("utf-8")).hexdigest()
     if not secrets.compare_digest(expected, signature):
         raise MoodleError("Token signature mismatch — possible CSRF / replay")
 
@@ -372,9 +377,24 @@ def fetch_resource_bytes(user_id: str, url: str) -> bytes:
     full = f"{url}{sep}token={urllib.parse.quote(account.token)}"
     try:
         with urllib.request.urlopen(full, timeout=30) as resp:
-            return resp.read()
+            content_type = resp.headers.get("Content-Type", "")
+            data = resp.read()
     except Exception as exc:
         raise MoodleError(f"Resource fetch failed: {exc}") from exc
+
+    # pluginfile.php returns HTTP 200 with a JSON error body when the token
+    # is expired or lacks access ({"errorcode":"requireloginerror",...}).
+    # Without this guard that JSON gets ingested as if it were the file.
+    if "application/json" in content_type or (
+        data[:1] in (b"{", b"[") and b'"errorcode"' in data[:512]
+    ):
+        try:
+            payload = json.loads(data.decode("utf-8", "replace"))
+            message = payload.get("error") or payload.get("message") or "access denied"
+        except (json.JSONDecodeError, AttributeError):
+            message = "Moodle returned an error instead of the file"
+        raise MoodleError(f"Resource not accessible (reconnect Moodle): {message}")
+    return data
 
 
 def _filename_for_ingest(r: MoodleResource) -> str | None:

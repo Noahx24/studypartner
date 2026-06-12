@@ -14,6 +14,17 @@ function formatSize(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Moodle's internal module types read as jargon — translate for students.
+const TYPE_LABELS = {
+  resource: 'File',
+  folder: 'Folder',
+  page: 'Course page',
+  url: 'Link',
+  assign: 'Assignment',
+  quiz: 'Quiz',
+};
+const typeLabel = (t) => TYPE_LABELS[t] || 'File';
+
 /**
  * Per-file picker for which Moodle materials feed the AI.
  *
@@ -62,7 +73,7 @@ export default function MoodleMaterials() {
     mutationFn: () => api.ingestSelectedMaterials(),
     onSuccess: (res) => {
       const skipped = res.skipped?.length ?? 0;
-      toast.success(`Added ${res.count} files to AI${skipped ? ` (${skipped} skipped)` : ''}`);
+      toast.success(`${res.count} file${res.count === 1 ? '' : 's'} ready to study from${skipped ? ` — ${skipped} couldn't be added` : ''}.`);
       queryClient.invalidateQueries({ queryKey: ['moodle-materials'] });
     },
     onError: (err) => toast.error(err.message),
@@ -106,7 +117,7 @@ export default function MoodleMaterials() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div>
-            <h1 className="font-heading text-2xl font-bold">Materials for AI</h1>
+            <h1 className="font-heading text-2xl font-bold">Study materials</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {totalSelected} of {resources.length} selected
             </p>
@@ -173,11 +184,17 @@ export default function MoodleMaterials() {
                 </span>
                 <FileText className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
                 <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium truncate">{r.title}</span>
-                  <span className="block text-xs text-muted-foreground mt-0.5">
-                    {r.type}
+                  {/* The Moodle activity title ("Additional Resources") repeats
+                      for every file in a folder — the filename is what the
+                      student actually recognises, so lead with it. */}
+                  <span className="block text-sm font-medium truncate">
+                    {r.filename || r.title}
+                  </span>
+                  <span className="block text-xs text-muted-foreground mt-0.5 truncate">
+                    {r.filename && r.filename !== r.title ? `${r.title} · ` : ''}
+                    {typeLabel(r.type)}
                     {r.file_size ? ` · ${formatSize(r.file_size)}` : ''}
-                    {r.ingested_at ? ' · already added' : ''}
+                    {r.ingested_at ? ' · added to AI' : ''}
                   </span>
                 </span>
               </button>
@@ -198,7 +215,7 @@ export default function MoodleMaterials() {
               {save.isPending ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : null}
-              {dirty ? 'Save selection' : 'No changes'}
+              {dirty ? 'Save my choices' : 'Nothing to save'}
             </Button>
             <Button
               className="flex-1 rounded-xl"
@@ -210,7 +227,7 @@ export default function MoodleMaterials() {
               ) : (
                 <Sparkles className="w-4 h-4 mr-2" />
               )}
-              Add {totalSelected} to AI
+              Use {totalSelected} for studying
             </Button>
           </div>
         </div>

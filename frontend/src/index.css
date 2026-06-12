@@ -1,4 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap');
+/* Self-hosted fonts (bundled by Vite) — no external requests, works
+   fully offline, and nothing render-blocking on slow connections.
+   Latin subset only: every UI string is English/latin. */
+@import '@fontsource/geist/latin-300.css';
+@import '@fontsource/geist/latin-400.css';
+@import '@fontsource/geist/latin-500.css';
+@import '@fontsource/geist/latin-600.css';
+@import '@fontsource/geist/latin-700.css';
+@import '@fontsource/geist-mono/latin-400.css';
+@import '@fontsource/geist-mono/latin-500.css';
+@import '@fontsource/geist-mono/latin-600.css';
+@import '@fontsource/geist-mono/latin-700.css';
 
 @tailwind base;
 @tailwind components;

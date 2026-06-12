@@ -10,14 +10,24 @@ import re
 from app.src.models import LearningUnit, Subtopic
 
 
-# Patterns are anchored at line start (multiline + case-insensitive).
+# Structured headings are anchored at line start (multiline). These name a
+# unit explicitly ("CHAPTER 3", "LEARNING UNIT 4") and are tried first; only
+# if none match do we fall back to bare numbering, which is far noisier.
 LU_PATTERNS = [
     re.compile(r"^\s*CHAPTER\s+(\d+|[IVXLCDM]+)[\s:\.\-]+(.+?)\s*$", re.IGNORECASE | re.MULTILINE),
-    re.compile(r"^\s*UNIT\s+(\d+)[\s:\.\-]+(.+?)\s*$", re.IGNORECASE | re.MULTILINE),
+    # "LEARNING UNIT 4", "STUDY UNIT 4", "UNIT 4". The qualifier and the
+    # trailing title are both optional because UNISA study guides usually put
+    # the unit title on the *next* line (handled in _collect_lu_matches).
+    re.compile(r"^\s*(?:LEARNING|STUDY)\s+UNIT\s+(\d+)\b[\s:\.\-]*(.*?)\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^\s*UNIT\s+(\d+)\b[\s:\.\-]*(.*?)\s*$", re.IGNORECASE | re.MULTILINE),
     re.compile(r"^\s*WEEK\s+(\d+)[\s:\.\-]+(.+?)\s*$", re.IGNORECASE | re.MULTILINE),
-    # Top-level numbering only (e.g. "1. Introduction"), not "1.1"
-    re.compile(r"^\s*(\d+)\.\s+([A-Z][^\n]{3,80})$", re.MULTILINE),
 ]
+
+# Bare top-level numbering ("1. Introduction"), used ONLY when no structured
+# heading is found — on its own it happily matches reference-list entries and
+# other numbered prose, so it is a last resort, not a peer of the patterns
+# above.
+LU_NUMBERED_PATTERN = re.compile(r"^\s*(\d+)\.\s+([A-Z][^\n]{3,80})$", re.MULTILINE)
 
 SUBTOPIC_DOTTED = re.compile(r"^\s*(\d+)\.(\d+)(?:\.(\d+))?\s+(.+?)\s*$", re.MULTILINE)
 # ALL CAPS or Title Case heading-like line, short
@@ -46,22 +56,111 @@ def _clean_title(t: str) -> str:
     return re.sub(r"\s+", " ", t).strip().rstrip(":.-")
 
 
+def _next_nonempty_line(text: str, pos: int) -> str:
+    """Title fallback: the first non-blank line at/after `pos`.
+
+    UNISA study guides print the unit number and its title on separate lines
+    ("LEARNING UNIT 4\nThe interests of the unborn child"), so when the
+    heading line carries no inline title we look ahead one line.
+    """
+    for line in text[pos:pos + 400].splitlines():
+        candidate = _clean_title(line)
+        if len(candidate) >= 3:
+            return candidate
+    return ""
+
+
 def _collect_lu_matches(text: str) -> list[_Match]:
     matches: list[_Match] = []
     for pat in LU_PATTERNS:
         for m in pat.finditer(text):
+            ordinal_hint = _roman_or_int(m.group(1))
+            title = _clean_title(m.group(2))
+            if len(title) < 3:
+                # No inline title — grab the following line (next-line titles).
+                title = _next_nonempty_line(text, m.end())
+            if len(title) > MAX_TITLE_LEN or len(title) < 3:
+                continue
+            matches.append(
+                _Match(start=m.start(), end=m.end(), title=title, ordinal_hint=ordinal_hint)
+            )
+
+    # No explicit unit/chapter headings — fall back to bare "N. Title"
+    # numbering, which we deliberately keep out of the structured pass because
+    # it also matches reference lists and other numbered prose.
+    if not matches:
+        for m in LU_NUMBERED_PATTERN.finditer(text):
             title = _clean_title(m.group(2))
             if len(title) > MAX_TITLE_LEN or len(title) < 3:
                 continue
             matches.append(_Match(start=m.start(), end=m.end(), title=title))
+
     matches.sort(key=lambda x: x.start)
-    # Dedupe overlapping matches (keep first)
+    matches = _drop_toc_clusters(matches)
+
+    # Dedupe overlapping matches (keep first) and collapse repeats of the same
+    # unit number — running headers/footers reprint "Learning unit 3" on every
+    # page, which would otherwise spawn a unit per page.
     deduped: list[_Match] = []
+    seen_ordinals: set[int] = set()
     for m in matches:
         if deduped and m.start < deduped[-1].end + 5:
             continue
+        if m.ordinal_hint is not None and m.ordinal_hint in seen_ordinals:
+            continue
         deduped.append(m)
+        if m.ordinal_hint is not None:
+            seen_ordinals.add(m.ordinal_hint)
     return deduped
+
+
+TOC_CLUSTER_GAP_CHARS = 150
+TOC_CLUSTER_MIN_SIZE = 3
+
+
+def _drop_toc_clusters(matches: list[_Match]) -> list[_Match]:
+    """Remove table-of-contents runs from the heading matches.
+
+    A TOC lists every unit heading once per line, so its matches sit within a
+    few dozen characters of each other; real unit bodies are pages apart. Any
+    run of >=3 matches each starting within TOC_CLUSTER_GAP_CHARS of the
+    previous one is an index, not content — keeping it would consume the unit
+    ordinals before the real headings are seen (titles also end up with TOC
+    page numbers attached).
+    """
+    if len(matches) < TOC_CLUSTER_MIN_SIZE:
+        return matches
+    keep: list[_Match] = []
+    i = 0
+    while i < len(matches):
+        j = i
+        while (
+            j + 1 < len(matches)
+            and matches[j + 1].start - matches[j].start <= TOC_CLUSTER_GAP_CHARS
+        ):
+            j += 1
+        run = matches[i : j + 1]
+        if len(run) < TOC_CLUSTER_MIN_SIZE:
+            keep.extend(run)
+        i = j + 1
+    return keep
+
+
+def _roman_or_int(token: str) -> int | None:
+    """Parse a unit ordinal that may be Arabic ("4") or Roman ("IV")."""
+    token = token.strip()
+    if token.isdigit():
+        return int(token)
+    romans = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    if token and all(c in romans for c in token.upper()):
+        total = 0
+        prev = 0
+        for c in reversed(token.upper()):
+            val = romans[c]
+            total += -val if val < prev else val
+            prev = max(prev, val)
+        return total
+    return None
 
 
 def _slice_between(text: str, matches: list[_Match]) -> list[tuple[str, str, dict]]:
