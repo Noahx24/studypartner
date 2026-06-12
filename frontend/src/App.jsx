@@ -23,6 +23,8 @@ const StudyPlan = lazy(() => import('./views/StudyPlan'));
 const Profile = lazy(() => import('./views/Profile'));
 const Login = lazy(() => import('./views/Login'));
 const Onboarding = lazy(() => import('./views/Onboarding'));
+const CatchUp = lazy(() => import('./views/CatchUp'));
+const Pacing = lazy(() => import('./views/Pacing'));
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
 
 const Spinner = () => (
@@ -50,6 +52,8 @@ const AuthenticatedApp = () => {
         <Route path="/modules/materials" element={<MoodleMaterials />} />
         <Route path="/calendar" element={<CalendarView />} />
         <Route path="/plan" element={<StudyPlan />} />
+        <Route path="/catch-up" element={<CatchUp />} />
+        <Route path="/pacing" element={<Pacing />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />

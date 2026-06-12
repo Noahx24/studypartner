@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -43,23 +44,28 @@ class CreateAssessmentRequest(BaseModel):
     weight: float = Field(default=1.0, ge=0, le=100)
 
 
+def _is_exam(title: str) -> bool:
+    return bool(re.search(r"exam|examination", title or "", re.IGNORECASE))
+
+
 @router.get("/modules")
 def list_modules_endpoint(current_user: User = Depends(get_current_user)) -> dict:
-    """All modules for the current user, with each module's next open
-    deadline. Deliberately tiny (a few hundred bytes per module) — this is
-    the mobile shell's primary list view and must stay cheap on data."""
+    """All modules for the current user, with the next exam and the next
+    assignment deadline kept separate so the UI can label them correctly.
+    Deliberately tiny — this is the mobile shell's primary list view."""
+    today = date.today()
     modules = []
     for m in get_modules(current_user.id):
-        upcoming = [
-            a.due_date for a in get_assessments_for_module(m.id)
-            if a.due_date >= date.today()
-        ]
+        upcoming = [a for a in get_assessments_for_module(m.id) if a.due_date >= today]
+        exams = sorted(a.due_date for a in upcoming if _is_exam(a.title))
+        assignments = sorted(a.due_date for a in upcoming if not _is_exam(a.title))
         modules.append(
             {
                 "id": m.id,
                 "name": m.name,
                 "module_type": m.module_type.value,
-                "next_due_date": min(upcoming).isoformat() if upcoming else None,
+                "next_exam_date": exams[0].isoformat() if exams else None,
+                "next_assignment_date": assignments[0].isoformat() if assignments else None,
             }
         )
     return {"modules": modules}
@@ -96,6 +102,7 @@ def list_assessments_endpoint(current_user: User = Depends(get_current_user)) ->
                     "module_name": m.name,
                     "title": a.title,
                     "due_date": a.due_date.isoformat(),
+                    "kind": "exam" if _is_exam(a.title) else "assignment",
                     "status": a.status.value if hasattr(a.status, "value") else a.status,
                 }
             )

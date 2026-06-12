@@ -42,19 +42,25 @@ export default function Dashboard() {
     return count;
   }, [allSessions]);
 
-  const handleComplete = (session) => {
-    api.completeSession(session.id).then(() =>
-      queryClient.invalidateQueries({ queryKey: ['daily-plan'] })
-    );
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['daily-plan'] });
+    queryClient.invalidateQueries({ queryKey: ['catch-up'] });
+    queryClient.invalidateQueries({ queryKey: ['pacing'] });
   };
 
-  const handleMiss = () => {
-    queryClient.invalidateQueries({ queryKey: ['daily-plan'] });
+  const handleComplete = (session) => {
+    api.completeSession(session.id).then(invalidate);
+  };
+
+  const handleMiss = (session) => {
+    api.skipSession(session.id).then(invalidate);
   };
 
   return (
     <div>
-      <TodayHeader sessionsToday={todaySessions.length} completedToday={completedToday} streak={streak} />
+      <Link to="/pacing" className="block">
+        <TodayHeader sessionsToday={todaySessions.length} completedToday={completedToday} streak={streak} />
+      </Link>
 
       {todaySessions.length === 0 ? (
         <div className="text-center py-16">

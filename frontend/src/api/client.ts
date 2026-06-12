@@ -277,6 +277,26 @@ export const api = {
   completeSession: (sessionId: string) =>
     request<{ status: string; session_id: string }>(`/plans/sessions/${sessionId}/complete`, { method: 'POST' }),
 
+  skipSession: (sessionId: string) =>
+    request<{ status: string; session_id: string }>(`/plans/sessions/${sessionId}/skip`, { method: 'POST' }),
+
+  getCatchUp: (userId: string) =>
+    request<{
+      count: number;
+      minutes_to_recover: number;
+      sessions: DailyPlanResponse['sessions'];
+    }>(`/plans/catch-up/${userId}`),
+
+  getPacing: (userId: string) =>
+    request<{
+      multiplier: number;
+      samples: number;
+      planned_minutes: number;
+      actual_minutes: number;
+      per_module: Array<{ module_id: string; module_name: string; ratio: number; samples: number }>;
+      consistency: Array<{ date: string; completed: number; missed: number; planned: number }>;
+    }>(`/plans/pacing/${userId}`),
+
   submitFeedback: (payload: { user_id: string; session_id: string; actual_time_minutes: number }) =>
     request<{ multiplier: number; samples: number; status: string }>('/plans/session/feedback', {
       method: 'POST',

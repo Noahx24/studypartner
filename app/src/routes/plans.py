@@ -15,13 +15,17 @@ from app.storage import (
     get_assessment_due_date,
     get_module_study_units,
     get_modules,
+    get_pacing_stats,
+    get_session_status_by_day,
     get_sessions,
     get_units_for_user,
     get_user,
     get_user_multiplier,
     mark_session_complete,
+    mark_session_missed,
     save_sessions,
 )
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -147,6 +151,67 @@ def complete_session_endpoint(
     return {"status": "completed", "session_id": session_id}
 
 
+@router.post("/sessions/{session_id}/skip")
+def skip_session_endpoint(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Mark a session missed. It then shows up under Catch up, where the
+    student can reschedule it into free time."""
+    mark_session_missed(session_id)
+    return {"status": "missed", "session_id": session_id}
+
+
+@router.get("/catch-up/{user_id}")
+def catch_up_endpoint(user_id: str, current_user: User = Depends(get_current_user)) -> dict:
+    """Missed sessions plus a quick summary (count + minutes to recover) for
+    the Catch up screen. Past-dated still-'planned' sessions count as missed."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    today = date.today()
+    all_sessions = get_sessions(user_id)
+    missed = [
+        s for s in all_sessions
+        if s.status == "missed" or (s.status == "planned" and s.session_date < today)
+    ]
+    total_minutes = sum(s.planned_minutes for s in missed)
+    return {
+        "count": len(missed),
+        "minutes_to_recover": total_minutes,
+        "sessions": _serialize_sessions(user_id, missed),
+    }
+
+
+@router.get("/pacing/{user_id}")
+def pacing_endpoint(user_id: str, current_user: User = Depends(get_current_user)) -> dict:
+    """Planned-vs-actual pace, per-module pace, and a 7-day consistency
+    strip for the Pacing screen."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    stats = get_pacing_stats(user_id)
+    module_names = {m.id: m.name for m in get_modules(user_id)}
+    for row in stats["per_module"]:
+        row["module_name"] = module_names.get(row["module_id"], row["module_id"])
+
+    today = date.today()
+    week_start = today - timedelta(days=6)
+    by_day = get_session_status_by_day(user_id, week_start, today)
+    consistency = []
+    for i in range(7):
+        d = week_start + timedelta(days=i)
+        day = by_day.get(d.isoformat(), {})
+        consistency.append(
+            {
+                "date": d.isoformat(),
+                "completed": day.get("completed", 0),
+                "missed": day.get("missed", 0),
+                "planned": day.get("planned", 0),
+            }
+        )
+    stats["consistency"] = consistency
+    return stats
+
+
 @router.post("/session/feedback")
 def session_feedback_endpoint(
     body: FeedbackRequest,
@@ -184,11 +249,13 @@ def reschedule_endpoint(
 
     plan = reschedule(user, modules, units, deadlines, existing_sessions, from_date)
     clear_planned_sessions(body.user_id, from_date)
-    save_sessions([s for s in plan.sessions if s.status == "planned"])
+    new_planned = [s for s in plan.sessions if s.status == "planned"]
+    save_sessions(new_planned)
 
     return {
         "week_start": plan.week_start.isoformat(),
         "week_end": plan.week_end.isoformat(),
-        "sessions": [s.__dict__ | {"session_date": s.session_date.isoformat()} for s in plan.sessions],
+        "rescheduled": len(new_planned),
+        "sessions": _serialize_sessions(body.user_id, plan.sessions),
         "summaries": [s.__dict__ for s in plan.summaries],
     }

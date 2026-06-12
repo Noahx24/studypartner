@@ -33,7 +33,8 @@ export default function Modules() {
             user_id: user.id,
             name: m.name,
             module_type: m.module_type,
-            next_due_date: m.next_due_date,
+            next_exam_date: m.next_exam_date,
+            next_assignment_date: m.next_assignment_date,
           })),
         );
         return { modules };
@@ -50,11 +51,9 @@ export default function Modules() {
     m.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const sorted = [...filtered].sort((a, b) => {
-    const aDate = a.next_due_date || '9999-12-31';
-    const bDate = b.next_due_date || '9999-12-31';
-    return aDate.localeCompare(bDate);
-  });
+  const nextDeadline = (m) =>
+    [m.next_exam_date, m.next_assignment_date].filter(Boolean).sort()[0] || '9999-12-31';
+  const sorted = [...filtered].sort((a, b) => nextDeadline(a).localeCompare(nextDeadline(b)));
 
   const handleDelete = () => {
     queryClient.invalidateQueries({ queryKey: ['modules'] });
@@ -118,7 +117,8 @@ export default function Modules() {
                 ...module,
                 title: module.name,
                 type: module.module_type,
-                assignment_date: module.next_due_date,
+                exam_date: module.next_exam_date,
+                assignment_date: module.next_assignment_date,
               }}
               onDelete={handleDelete}
             />

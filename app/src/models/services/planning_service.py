@@ -40,11 +40,12 @@ def content_to_units(module_id: str, raw_text: str, pace: Pace, custom_minutes_p
             long_ratio = sum(1 for w in part if len(w) > 8) / len(part)
             complexity = round(min(2.0, 0.9 + long_ratio + (sum(len(w) for w in part) / len(part) / 12)), 2)
             minutes = estimate_time(len(part), complexity, pace, custom_minutes_per_500_words, user_multiplier)
+            seq = len(units) + 1
             units.append(
                 StudyUnit(
-                    id=f"{module_id}-unit-{len(units)+1}",
+                    id=f"{module_id}-unit-{seq:04d}",
                     module_id=module_id,
-                    topic_id=f"{module_id}-topic-{len(units)+1}",
+                    topic_id=f"{module_id}-topic-{seq:04d}",
                     title=f"Topic {i}{'.'+str(part_idx//550+1) if part_idx else ''}",
                     estimated_minutes=minutes,
                     source_word_count=len(part),
@@ -84,11 +85,14 @@ def units_from_learning_units(
             complexity = round(min(2.0, 0.9 + long_ratio + (sum(len(w) for w in part) / len(part) / 12)), 2)
             minutes = estimate_time(len(part), complexity, pace, custom_minutes_per_500_words, user_multiplier)
             title = lu.topic if len(parts) == 1 else f"{lu.topic} — part {part_idx}"
+            # Zero-padded sequence so lexical id sorting (used by the planner
+            # and session display) matches document order: unit-0002 < unit-0010.
+            seq = len(units) + 1
             units.append(
                 StudyUnit(
-                    id=f"{module_id}-unit-{len(units)+1}",
+                    id=f"{module_id}-unit-{seq:04d}",
                     module_id=module_id,
-                    topic_id=f"{module_id}-topic-{lu.ordinal}",
+                    topic_id=f"{module_id}-topic-{lu.ordinal:04d}",
                     title=title,
                     estimated_minutes=minutes,
                     source_word_count=len(part),
@@ -178,8 +182,11 @@ def generate_sessions(user: User, modules: list[Module], units: list[StudyUnit],
                 break
             candidates.sort(key=lambda x: x[1], reverse=True)
             mod_id = candidates[0][0]
-            available = sorted(units_by_module[mod_id], key=lambda u: (u.status != UnitStatus.in_progress, -u.estimated_minutes))
-            unit = available[0]
+            # Study a module's units in document order: continue the one
+            # already in progress, otherwise start the earliest (lowest id)
+            # not-yet-started unit. This keeps "part 1" before "part 2".
+            available = sorted(units_by_module[mod_id], key=lambda u: u.id)
+            unit = next((u for u in available if u.status == UnitStatus.in_progress), available[0])
 
             alloc = int(math.floor(min(remaining_today, unit.estimated_minutes, 90) / 5) * 5)
             if alloc < 20:

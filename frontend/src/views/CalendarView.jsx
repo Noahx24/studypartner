@@ -25,7 +25,7 @@ function DayDot({ type }) {
 // deadlines by title so the calendar can colour them differently.
 const isExam = (a) => /exam|examination/i.test(a.title);
 
-export default function CalendarView() {
+export default function CalendarView({ embedded = false }) {
   const { user } = useAuth();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(new Date());
@@ -89,10 +89,12 @@ export default function CalendarView() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="font-heading text-2xl font-bold">Calendar</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Sessions, exams & assignments</p>
-      </div>
+      {!embedded && (
+        <div className="mb-6">
+          <h1 className="font-heading text-3xl font-bold tracking-tight">Calendar</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Sessions, exams &amp; assignments</p>
+        </div>
+      )}
 
       {/* Month header */}
       <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden mb-4">

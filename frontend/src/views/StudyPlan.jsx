@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/AuthContext';
 import { api } from '@/api/client';
 import GeneratePlanButton from '../components/plan/GeneratePlanButton';
 import PlanDayGroup from '../components/plan/PlanDayGroup';
-import { ClipboardList, Info } from 'lucide-react';
+import CalendarView from './CalendarView';
+import { ClipboardList, Info, List, CalendarDays, AlertTriangle } from 'lucide-react';
 import { addDays, differenceInDays, format, parseISO } from 'date-fns';
 import { moduleCode } from '@/lib/moduleColors';
+import { cn } from '@/lib/utils';
 
 function groupBy(arr, key) {
   return arr.reduce((acc, item) => {
@@ -21,8 +24,15 @@ const iso = (d) => format(d, 'yyyy-MM-dd');
 export default function StudyPlan() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [view, setView] = useState('list'); // 'list' | 'calendar'
 
   const today = new Date();
+
+  const { data: catchUp } = useQuery({
+    queryKey: ['catch-up', user?.id],
+    queryFn: () => api.getCatchUp(user.id),
+    enabled: !!user,
+  });
   const { data, isLoading } = useQuery({
     queryKey: ['sessions', user?.id],
     // The plan view covers the week ahead, not just today.
@@ -62,7 +72,7 @@ export default function StudyPlan() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 gap-3">
         <div>
           <h1 className="font-heading text-3xl font-bold tracking-tight">Study Plan</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -71,15 +81,56 @@ export default function StudyPlan() {
               : 'Your week, planned around your deadlines'}
           </p>
         </div>
+        {/* List / Calendar toggle */}
+        <div className="flex rounded-xl border bg-muted/50 p-1 shrink-0">
+          {[
+            { k: 'list', label: 'List', Icon: List },
+            { k: 'calendar', label: 'Calendar', Icon: CalendarDays },
+          ].map(({ k, label, Icon }) => (
+            <button
+              key={k}
+              onClick={() => setView(k)}
+              className={cn(
+                'flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all',
+                view === k ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mb-4">
         <GeneratePlanButton
           userId={user?.id}
-          onGenerated={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
+          onGenerated={() => {
+            queryClient.invalidateQueries({ queryKey: ['sessions'] });
+            queryClient.invalidateQueries({ queryKey: ['sessions-range'] });
+          }}
         />
       </div>
 
+      {catchUp?.count > 0 && (
+        <Link
+          to="/catch-up"
+          className="flex items-center gap-3 rounded-2xl bg-destructive/5 border border-destructive/20 p-4 mb-4"
+        >
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-destructive">
+              {catchUp.count} missed session{catchUp.count === 1 ? '' : 's'}
+            </p>
+            <p className="text-xs text-muted-foreground">Tap to catch up — we'll refit them into free time.</p>
+          </div>
+        </Link>
+      )}
+
+      {view === 'calendar' ? (
+        <CalendarView embedded />
+      ) : (
+        <>
       {upcoming.length > 0 && (
         <div className="mb-6 rounded-2xl bg-secondary border border-primary/10 p-4 flex gap-3">
           <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
@@ -116,14 +167,23 @@ export default function StudyPlan() {
               date={date}
               sessions={groupedSessions[date]}
               onComplete={(session) =>
-                api.completeSession(session.id).then(() =>
-                  queryClient.invalidateQueries({ queryKey: ['sessions'] }),
-                )
+                api.completeSession(session.id).then(() => {
+                  queryClient.invalidateQueries({ queryKey: ['sessions'] });
+                  queryClient.invalidateQueries({ queryKey: ['sessions-range'] });
+                })
               }
-              onMiss={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
+              onMiss={(session) =>
+                api.skipSession(session.id).then(() => {
+                  queryClient.invalidateQueries({ queryKey: ['sessions'] });
+                  queryClient.invalidateQueries({ queryKey: ['sessions-range'] });
+                  queryClient.invalidateQueries({ queryKey: ['catch-up'] });
+                })
+              }
             />
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );

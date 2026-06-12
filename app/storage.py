@@ -682,6 +682,65 @@ def get_feedback_samples(user_id: str, limit: int = 20) -> list[sqlite3.Row]:
     return rows
 
 
+def get_pacing_stats(user_id: str) -> dict:
+    """Aggregate planned-vs-actual data for the Pacing screen.
+
+    Returns the overall pace multiplier + sample count, a per-module pace
+    (avg actual/estimated ratio), and a recent planned-vs-actual minutes
+    series. All derived from session_feedback + sessions; empty-safe.
+    """
+    multiplier, samples = get_user_multiplier(user_id)
+    with get_connection() as conn:
+        per_module = conn.execute(
+            """
+            SELECT s.module_id AS module_id, AVG(f.ratio) AS avg_ratio, COUNT(*) AS n
+            FROM session_feedback f
+            JOIN sessions s ON s.id = f.session_id
+            WHERE f.user_id = ?
+            GROUP BY s.module_id
+            """,
+            (user_id,),
+        ).fetchall()
+        totals = conn.execute(
+            """
+            SELECT COALESCE(SUM(estimated_time_minutes), 0) AS planned,
+                   COALESCE(SUM(actual_time_minutes), 0)    AS actual,
+                   COUNT(*) AS n
+            FROM session_feedback WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    return {
+        "multiplier": round(multiplier, 3),
+        "samples": samples,
+        "planned_minutes": totals["planned"],
+        "actual_minutes": totals["actual"],
+        "per_module": [
+            {"module_id": r["module_id"], "ratio": round(r["avg_ratio"], 3), "samples": r["n"]}
+            for r in per_module
+        ],
+    }
+
+
+def get_session_status_by_day(user_id: str, start: date, end: date) -> dict:
+    """{date: {'completed': n, 'planned': n, 'missed': n}} for the streak/
+    consistency strip on the Pacing screen."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT session_date, status, COUNT(*) AS n
+            FROM sessions
+            WHERE user_id = ? AND session_date >= ? AND session_date <= ?
+            GROUP BY session_date, status
+            """,
+            (user_id, start.isoformat(), end.isoformat()),
+        ).fetchall()
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        out.setdefault(r["session_date"], {})[r["status"]] = r["n"]
+    return out
+
+
 def add_module(module: Module) -> None:
     with get_connection() as conn:
         conn.execute(
@@ -784,6 +843,26 @@ def replace_topics_and_units(module_id: str, topics: list[StudyTopic], units: li
         )
 
 
+def append_topics_and_units(topics: list[StudyTopic], units: list[StudyUnit]) -> None:
+    """Additive counterpart to replace_topics_and_units — used when a module
+    is built from several files so each file's planner units survive."""
+    with get_connection() as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO topics (id, module_id, title, content, word_count, page_span) VALUES (?, ?, ?, ?, ?, ?)",
+            [(t.id, t.module_id, t.title, t.content, t.word_count, t.page_span) for t in topics],
+        )
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO study_units (id, module_id, topic_id, title, estimated_minutes, source_word_count, complexity_score, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (u.id, u.module_id, u.topic_id, u.title, u.estimated_minutes, u.source_word_count, u.complexity_score, u.status.value)
+                for u in units
+            ],
+        )
+
+
 def get_units_for_user(user_id: str) -> list[StudyUnit]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -856,7 +935,9 @@ def get_sessions(user_id: str, start: date | None = None, end: date | None = Non
     if end:
         query += " AND session_date <= ?"
         params.append(end.isoformat())
-    query += " ORDER BY session_date, id"
+    # Order within a day by module then unit_id; unit ids are zero-padded so
+    # this is document order ("part 2" before "part 10"), not random UUID order.
+    query += " ORDER BY session_date, module_id, unit_id"
 
     with get_connection() as conn:
         rows = conn.execute(query, tuple(params)).fetchall()
@@ -897,6 +978,14 @@ def mark_session_complete(session_id: str) -> None:
             return
         conn.execute("UPDATE sessions SET status = 'completed' WHERE id = ?", (session_id,))
         conn.execute("UPDATE study_units SET status = 'completed' WHERE id = ?", (row["unit_id"],))
+
+
+def mark_session_missed(session_id: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE sessions SET status = 'missed' WHERE id = ? AND status = 'planned'",
+            (session_id,),
+        )
 
 
 def get_module_content(module_id: str) -> dict:
@@ -940,6 +1029,44 @@ def replace_learning_units(module_id: str, units: list[LearningUnit]) -> None:
         conn.executemany(
             """
             INSERT INTO subtopics (id, learning_unit_id, ordinal, title, content, word_count, resource_weight, effort_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (s.id, s.learning_unit_id, s.ordinal, s.title, s.content, s.word_count, s.resource_weight, s.effort_score)
+                for s in subs
+            ],
+        )
+
+
+def max_learning_unit_ordinal(module_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(ordinal), 0) AS m FROM learning_units WHERE module_id = ?",
+            (module_id,),
+        ).fetchone()
+    return row["m"] if row else 0
+
+
+def append_learning_units(units: list[LearningUnit]) -> None:
+    """Add learning units WITHOUT wiping the module's existing tree.
+
+    A module can be fed several files (study guide + tutorial letters);
+    each contributes its own units. Ids are file-scoped by the caller, so
+    re-ingesting the same file replaces only its rows (INSERT OR REPLACE).
+    """
+    now = utcnow_iso()
+    with get_connection() as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO learning_units (id, module_id, ordinal, topic, source_span, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (lu.id, lu.module_id, lu.ordinal, lu.topic, json.dumps(lu.source_span) if lu.source_span else None, now)
+                for lu in units
+            ],
+        )
+        subs = [s for lu in units for s in lu.subtopics]
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO subtopics (id, learning_unit_id, ordinal, title, content, word_count, resource_weight, effort_score)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
