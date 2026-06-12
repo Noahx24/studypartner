@@ -96,6 +96,7 @@ def _collect_lu_matches(text: str) -> list[_Match]:
             matches.append(_Match(start=m.start(), end=m.end(), title=title))
 
     matches.sort(key=lambda x: x.start)
+    matches = _drop_toc_clusters(matches)
 
     # Dedupe overlapping matches (keep first) and collapse repeats of the same
     # unit number — running headers/footers reprint "Learning unit 3" on every
@@ -111,6 +112,38 @@ def _collect_lu_matches(text: str) -> list[_Match]:
         if m.ordinal_hint is not None:
             seen_ordinals.add(m.ordinal_hint)
     return deduped
+
+
+TOC_CLUSTER_GAP_CHARS = 150
+TOC_CLUSTER_MIN_SIZE = 3
+
+
+def _drop_toc_clusters(matches: list[_Match]) -> list[_Match]:
+    """Remove table-of-contents runs from the heading matches.
+
+    A TOC lists every unit heading once per line, so its matches sit within a
+    few dozen characters of each other; real unit bodies are pages apart. Any
+    run of >=3 matches each starting within TOC_CLUSTER_GAP_CHARS of the
+    previous one is an index, not content — keeping it would consume the unit
+    ordinals before the real headings are seen (titles also end up with TOC
+    page numbers attached).
+    """
+    if len(matches) < TOC_CLUSTER_MIN_SIZE:
+        return matches
+    keep: list[_Match] = []
+    i = 0
+    while i < len(matches):
+        j = i
+        while (
+            j + 1 < len(matches)
+            and matches[j + 1].start - matches[j].start <= TOC_CLUSTER_GAP_CHARS
+        ):
+            j += 1
+        run = matches[i : j + 1]
+        if len(run) < TOC_CLUSTER_MIN_SIZE:
+            keep.extend(run)
+        i = j + 1
+    return keep
 
 
 def _roman_or_int(token: str) -> int | None:
