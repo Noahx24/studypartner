@@ -105,7 +105,7 @@ export default function MoodleMaterials() {
   };
 
   return (
-    <div className="pb-32">
+    <div className="pb-44">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <Button
@@ -204,7 +204,10 @@ export default function MoodleMaterials() {
       ))}
 
       {resources.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 border-t bg-background/95 backdrop-blur p-4">
+        <div
+          className="fixed left-0 right-0 z-50 border-t bg-background/95 backdrop-blur p-4"
+          style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           <div className="max-w-2xl mx-auto flex gap-2">
             <Button
               variant="outline"

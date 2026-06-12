@@ -4,86 +4,107 @@
 (UNISA myModules) · **Login used:** the supplied
 `10520467@mylife.unisa.ac.za` student account.
 
-## What was tested
+## Outcome: ✅ COMPLETED END-TO-END against live UNISA myModules
 
-The "mobile-launch" SSO handshake documented in the README
-(`tool_mobile/launch.php` → Microsoft SSO → `studypartner://token=...`
-→ `/moodle/launch/callback`). Both the backend API contract and the
-live browser-side SSO flow were driven.
+The full "mobile-launch" handshake was driven live and **completed
+successfully** — including the human-approved MFA — and a **real sync**
+pulled the student's actual modules, assessments, and resources. The
+connection persists in `moodle_accounts`.
+
+| Stage | Result |
+|---|---|
+| `POST /moodle/launch` builds the launch URL | ✅ |
+| Moodle login page → Microsoft SSO | ✅ correct tenant `mylifeunisaac.onmicrosoft.com` |
+| Username + password | ✅ accepted |
+| **MFA number-match push** | ✅ **approved by the account owner on their device** |
+| Moodle mints token, renders redirect page | ✅ "You are logged in as NOAH … MBUDE" |
+| Token handed to `/moodle/launch/callback` | ✅ `{"sitename":"UNISA : myModules","moodle_user_id":2630263}` |
+| `POST /moodle/sync` | ✅ **6 modules, 4 assessments, 258 resources** |
+| Materials picker renders real data | ✅ frames `M12`–`M16` |
+
+### Real data captured (screenshots)
+
+- `M10` — the MFA number-match prompt (live).
+- `M12` — Modules screen after sync: the real UNISA modules
+  (`FYE1500-26-S1`, `PVL1501-26-S1`, `PLS1502-26-S1`, `SCL1501-26-S1`,
+  `SJD1501-26-S1`, `SJD1501-26-S1-9T`) listed alongside the seeded demo
+  modules.
+- `M13`/`M14` — the materials picker populated with the student's
+  **258 real Moodle resources**, grouped by module ("0 of 258 selected").
+- `M15` — a real resource ticked ("1 of 258 selected").
+- `M16` — selection saved.
+
+## ⚠️ Key finding: UNISA forces `urlscheme=moodlemobile`, not `studypartner`
+
+This is the most important result of the live test and it contradicts a
+core assumption in the README.
+
+- StudyPartner requests `urlscheme=studypartner` (README "Connecting
+  Moodle"), expecting Moodle to redirect to `studypartner://token=...`
+  so the Capacitor app — which registers the `studypartner` scheme —
+  catches it.
+- **The live UNISA instance ignored that parameter.** The redirect link
+  Moodle actually rendered on `launch.php` was:
+
+  ```
+  <a id="launchapp" href="moodlemobile://token=ODRl…WUz">
+  ```
+
+  i.e. the official **Moodle Mobile** scheme. The "switch device" link on
+  the same page also showed `…&urlscheme=moodlemobile&confirmed`,
+  confirming the server forced its own scheme.
+
+### Why this matters
+
+The README's native-shell instructions tell you to register
+`studypartner` as the URL scheme (iOS `CFBundleURLSchemes`, Android
+intent filter). **Against UNISA myModules that handler would never
+fire** — Moodle redirects to `moodlemobile://`, which the OS routes to
+UNISA's official myModules app (or nowhere), never to StudyPartner. So
+the documented deep-link mechanism, as written, does not work for the
+actual target institution.
+
+This was also why the headless capture initially "saw nothing": the
+driver was listening for `studypartner://` while Moodle emitted
+`moodlemobile://`. Once the real link was read from the page DOM, the
+token blob (`<signature>:::<token>:::<privatetoken>`, base64) validated
+cleanly against our passport and the callback succeeded — so the
+**backend handshake is correct**; only the **client URL-scheme
+assumption is wrong**.
+
+### Recommended follow-ups (product)
+
+1. Don't hard-code `studypartner` as the expected return scheme. Either:
+   - register `moodlemobile` as (an additional) URL scheme in the
+     native build so the redirect lands in StudyPartner, **or**
+   - detect/let the server tell you the effective `urlscheme` and
+     register that, **or**
+   - if the institution truly forces `moodlemobile`, this collides with
+     UNISA's own app and needs a different approach (e.g. the
+     in-app webview owning the launch so it can read the redirect URL
+     itself — which is essentially what this audit's driver did).
+2. Update the README's "Connecting Moodle" + native-shell sections to
+   reflect that the return scheme is **server-controlled**, not chosen
+   by the client.
 
 ## Backend API contract — ✅ verified
 
 | Check | Result |
 |---|---|
-| `POST /moodle/launch` builds correct URL | ✅ Returns `https://mymodules.dtls.unisa.ac.za/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<rand>&urlscheme=studypartner` plus a single-use passport |
-| `POST /moodle/launch` requires auth | ✅ 401 without bearer token |
-| `POST /moodle/sync` with no connected account | ✅ `{"detail":"No Moodle account connected"}` (clean error, no 500) |
-| Full Moodle test suite (`test_moodle_launch_and_materials.py`) | ✅ **15/15 pass** with `STUDYPARTNER_FERNET_KEY` set — covers launch URL construction, passport binding, full callback round-trip, expired/replayed/forged-passport rejection, materials select/ingest, cross-user flip prevention, re-sync selection preservation |
+| `POST /moodle/launch` builds correct URL | ✅ `…/admin/tool/mobile/launch.php?service=moodle_mobile_app&passport=<rand>&urlscheme=studypartner` + single-use passport |
+| `POST /moodle/launch` requires auth | ✅ 401 without bearer |
+| `POST /moodle/launch/callback` (LIVE) | ✅ real token accepted, account persisted |
+| `POST /moodle/sync` (LIVE) | ✅ 6 modules / 4 assessments / 258 resources |
+| `POST /moodle/sync` with no account | ✅ clean `{"detail":"No Moodle account connected"}` |
+| Full Moodle test suite | ✅ **15/15** (now hermetic — conftest sets the test Fernet key) |
 
-> The 4 "failures" you'd see from a bare `pytest` are purely a missing
-> `STUDYPARTNER_FERNET_KEY` env var in the shell — set it and all pass.
+## How the live capture was done (for reproducibility)
 
-## Live browser SSO — ✅ verified up to the MFA gate
-
-Driven with a headless mobile browser (`screenshots/M01`–`M07`):
-
-| Step | Frame | Result |
-|---|---|---|
-| 1. Open launch URL | `M01` | ✅ Moodle serves its login page with the "Sign in with… UNISA / Student myLife" SSO button |
-| 2. Click SSO button | `M02` | ✅ Redirects to the correct Microsoft tenant `login.microsoftonline.com/mylifeunisaac.onmicrosoft.com/oauth2/authorize` (OAuth2 authorize, client_id `d93bf783-…`) |
-| 3. Enter username | `M03` | ✅ Accepted |
-| 4. Enter password | `M04`→`M05` | ✅ Accepted — Microsoft escalates to MFA |
-| 5. MFA | `M05` | ⛔ **Number-matching push** ("Approve sign in request… enter the number"). Stopped here. |
-
-The OAuth chain, tenant resolution, and credential acceptance are all
-confirmed working. The integration is wired correctly end-to-end up to
-the identity provider's own multi-factor gate.
-
-### Second run — held open for live MFA approval
-
-A follow-up run (`M10`, `M11`) kept the browser session alive at the
-number-match prompt so the account owner could approve on their phone.
-The driver was built to intercept the post-approval
-`studypartner://token=...` redirect (doing in a headless browser what
-the native deep-link handler does) and then POST the blob to
-`/moodle/launch/callback` + run a sync. The number-match digits (`47`)
-were surfaced live. The session polled Microsoft's `ProcessAuth` page
-for the full 270 s window but the push approval was **not completed in
-time**, so no token was captured (`M11`). This is a timing/coordination
-limitation of the manual approval, not a code defect — the integration
-was still proven correct up to the gate. A retry simply needs the
-approval tapped within the window.
-
-## Why the flow was not completed
-
-Two independent reasons — either alone is sufficient:
-
-1. **MFA is a deliberate human-presence control.** The final step is a
-   Microsoft Authenticator number-match that confirms a person holding
-   the enrolled phone is approving *this specific* sign-in. Approving a
-   push that an automated cloud session initiated would defeat the
-   purpose of that control, so the audit deliberately stops at it.
-
-2. **The callback cannot complete in a browser — by design.** Even with
-   MFA approved, Moodle's final redirect is
-   `studypartner://token=<blob>` — a custom URL scheme. Per the README
-   ("Why a native shell is mandatory"), only an OS-registered handler
-   (the Capacitor iOS/Android build) can catch it; a web/headless
-   browser has no handler and the redirect dead-ends. So
-   `POST /moodle/launch/callback` — and therefore `/moodle/sync`,
-   materials listing, and selective ingestion — can only be exercised
-   end-to-end from the **built native app**, not from this web/CI
-   environment. The backend already proves these paths with a
-   monkey-patched WS token in the test suite (15/15).
-
-## What remains unreachable from here
-
-- `/moodle/launch/callback` live token persistence
-- A populated `/modules/materials` screen (requires a real sync; only
-  the empty state `frame 10` is reachable on web)
-- Moodle-sourced modules/assessments appearing on Modules / Calendar
-
-All three are gated on the native-shell custom-scheme redirect, not on
-any StudyPartner bug. To capture them, build the Capacitor app
-(`npx cap add ios/android`, register the `studypartner` scheme as the
-README describes) and run the flow on a device/emulator.
+A headless Chromium driver (`/tmp/shots/moodle_live.js`) opened the
+launch URL, drove the Microsoft SSO, surfaced the number-match digits
+for the owner to approve, then — because a browser cannot follow a
+custom-scheme redirect — read the `moodlemobile://token=...` link's raw
+`href` straight from the `launch.php` DOM and POSTed the blob +
+our passport to `/moodle/launch/callback`, exactly as the native
+deep-link handler would. This is what the Capacitor app does on a real
+device; the driver just stands in for the OS scheme handler.
