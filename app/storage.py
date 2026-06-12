@@ -1296,7 +1296,7 @@ def list_moodle_resources_with_selection(user_id: str) -> list[dict]:
         rows = conn.execute(
             """
             SELECT r.id, r.module_id, m.name AS module_name, r.title, r.type,
-                   r.file_size, r.url, r.included_in_ai, r.ingested_at
+                   r.file_size, r.url, r.filename, r.included_in_ai, r.ingested_at
             FROM moodle_resources r
             JOIN modules m ON m.id = r.module_id
             WHERE m.user_id = ?
@@ -1313,6 +1313,7 @@ def list_moodle_resources_with_selection(user_id: str) -> list[dict]:
             "type": r["type"],
             "file_size": r["file_size"],
             "url": r["url"],
+            "filename": r["filename"],
             "included_in_ai": bool(r["included_in_ai"]),
             "ingested_at": r["ingested_at"],
         }

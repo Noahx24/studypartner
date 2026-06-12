@@ -64,8 +64,10 @@ export default function Modules() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="font-heading text-2xl font-bold">Modules</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{modules.length} modules</p>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">Modules</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {modules.length === 0 ? 'Nothing here yet' : `${modules.length} active`}
+          </p>
         </div>
         <Button onClick={() => setDialogOpen(true)} className="rounded-xl">
           <Plus className="w-4 h-4 mr-1" /> Add
@@ -77,7 +79,7 @@ export default function Modules() {
         <Button asChild variant="outline" className="rounded-xl flex-1">
           <Link to="/modules/materials">
             <Sparkles className="w-4 h-4 mr-2" />
-            Pick materials for AI
+            Choose study materials
           </Link>
         </Button>
       </div>

@@ -14,7 +14,7 @@ from app.src.models.services.content_analysis_service import (
     detect_learning_units,
     normalize_structure,
 )
-from app.src.models.services.planning_service import content_to_units
+from app.src.models.services.planning_service import content_to_units, units_from_learning_units
 from app.storage import (
     add_module,
     get_user_multiplier,
@@ -151,7 +151,14 @@ def ingest_upload(
     legacy_text = clean_text(structured)
     topics = parse_topics(module_id, legacy_text)
     multiplier, _ = get_user_multiplier(user.id)
-    units = content_to_units(module_id, legacy_text, user.pace, user.custom_minutes_per_500_words, multiplier)
+    # Prefer planner units named after the parsed learning units so the
+    # student's sessions read "Domicile — part 2", not "Topic 1.13".
+    # Word-chunk fallback only when structure detection found nothing.
+    units = units_from_learning_units(
+        module_id, structured, learning_units, user.pace, user.custom_minutes_per_500_words, multiplier
+    )
+    if not units:
+        units = content_to_units(module_id, legacy_text, user.pace, user.custom_minutes_per_500_words, multiplier)
     replace_topics_and_units(module_id, topics, units)
 
     subtopic_count = sum(len(lu.subtopics) for lu in learning_units)

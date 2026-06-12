@@ -55,6 +55,50 @@ def content_to_units(module_id: str, raw_text: str, pace: Pace, custom_minutes_p
     return units
 
 
+def units_from_learning_units(
+    module_id: str,
+    source_text: str,
+    learning_units: list[LearningUnit],
+    pace: Pace,
+    custom_minutes_per_500_words: int | None = None,
+    user_multiplier: float = 1.0,
+) -> list[StudyUnit]:
+    """Build planner StudyUnits out of the parsed LearningUnit tree so
+    sessions carry the unit's real name ("Domicile — part 2"), not a
+    synthetic "Topic 1.13" label nobody can act on.
+
+    Long units are still split into ~550-word parts so a session stays a
+    sit-down-able chunk; each part keeps the human title with a part
+    suffix only when there is more than one.
+    """
+    units: list[StudyUnit] = []
+    for lu in sorted(learning_units, key=lambda u: u.ordinal):
+        span = lu.source_span or {}
+        body = source_text[span.get("start_char", 0):span.get("end_char", 0)]
+        words = re.findall(r"\w+", body)
+        if not words:
+            continue
+        parts = [words[i : i + 550] for i in range(0, len(words), 550)]
+        for part_idx, part in enumerate(parts, start=1):
+            long_ratio = sum(1 for w in part if len(w) > 8) / len(part)
+            complexity = round(min(2.0, 0.9 + long_ratio + (sum(len(w) for w in part) / len(part) / 12)), 2)
+            minutes = estimate_time(len(part), complexity, pace, custom_minutes_per_500_words, user_multiplier)
+            title = lu.topic if len(parts) == 1 else f"{lu.topic} — part {part_idx}"
+            units.append(
+                StudyUnit(
+                    id=f"{module_id}-unit-{len(units)+1}",
+                    module_id=module_id,
+                    topic_id=f"{module_id}-topic-{lu.ordinal}",
+                    title=title,
+                    estimated_minutes=minutes,
+                    source_word_count=len(part),
+                    complexity_score=complexity,
+                    status=UnitStatus.not_started,
+                )
+            )
+    return units
+
+
 def estimate_time(word_count: int, complexity: float, pace: Pace, custom_minutes_per_500_words: int | None = None, user_multiplier: float = 1.0) -> int:
     base = custom_minutes_per_500_words if (pace == Pace.custom and custom_minutes_per_500_words) else PACE_MINUTES_PER_500_WORDS[pace]
     words_based = (word_count / 275) * 5

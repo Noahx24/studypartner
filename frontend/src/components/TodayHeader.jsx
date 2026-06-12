@@ -1,7 +1,7 @@
 import React from 'react';
 import { format } from 'date-fns';
 import { Flame, Target } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/lib/AuthContext';
 
 const MOTIVATIONAL = [
   "Every session counts. Keep going.",
@@ -30,23 +30,52 @@ export default function TodayHeader({ sessionsToday, completedToday, streak }) {
   const progress = sessionsToday > 0 ? Math.round((completedToday / sessionsToday) * 100) : 0;
   const motivation = getMotivation(streak);
 
-  const { data: user } = useQuery({
-    queryKey: ['me'],
-  });
+  const { user } = useAuth();
 
-  const firstName = user?.full_name?.split(' ')[0] || 'there';
+  // "NOAH ANELISIWE KWEZI MBUDE" → "Noah": first name only, title-cased,
+  // so the greeting reads like a person wrote it.
+  const rawFirst = user?.name?.trim().split(/\s+/)[0];
+  const firstName = rawFirst
+    ? rawFirst.charAt(0).toUpperCase() + rawFirst.slice(1).toLowerCase()
+    : 'there';
   const hour = today.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
+  // Status pill, design-style: quick glance "am I okay today?"
+  const onTrack =
+    sessionsToday === 0 || completedToday >= sessionsToday / 2;
+  const headline =
+    sessionsToday === 0
+      ? null
+      : completedToday === sessionsToday
+        ? 'All done for today'
+        : completedToday >= sessionsToday / 2
+          ? 'Halfway there'
+          : completedToday > 0
+            ? 'Good start'
+            : 'Ready when you are';
+
   return (
     <div className="mb-6">
-      <p className="text-xs font-mono font-semibold text-muted-foreground uppercase tracking-widest">
-        {format(today, 'EEE · d MMM').toUpperCase()}
-      </p>
-      <h1 className="font-heading text-2xl font-bold mt-1 tracking-tight">
-        {greeting}, {firstName} 👋
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-mono font-semibold text-muted-foreground uppercase tracking-widest">
+          {format(today, 'EEEE · d MMMM').toUpperCase()}
+        </p>
+        {sessionsToday > 0 && (
+          <span
+            className={
+              onTrack
+                ? 'text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 text-emerald-700'
+                : 'text-xs font-semibold px-3 py-1 rounded-full bg-amber-100 text-amber-700'
+            }
+          >
+            {onTrack ? '● On track' : '● Catch up'}
+          </span>
+        )}
+      </div>
+      <h1 className="font-heading text-3xl font-bold mt-1 tracking-tight">
+        {greeting},<br />{firstName}
       </h1>
-      <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{motivation}</p>
 
       <div className="flex gap-3 mt-4">
         {/* Progress Ring */}
@@ -70,16 +99,19 @@ export default function TodayHeader({ sessionsToday, completedToday, streak }) {
               </div>
             </div>
             <div>
-              <p className="text-2xl font-heading font-bold font-mono tracking-tight">
-                {completedToday}<span className="text-muted-foreground">/{sessionsToday}</span>
+              {headline && (
+                <p className="font-heading font-bold text-sm tracking-tight">{headline}</p>
+              )}
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {completedToday} of {sessionsToday} sessions done
               </p>
-              <p className="text-xs text-muted-foreground">sessions done</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{motivation}</p>
             </div>
           </div>
         </div>
 
         {/* Streak */}
-        <div className="bg-accent/20 rounded-2xl p-4 border border-accent/30 shadow-sm flex items-center gap-3 min-w-[120px]">
+        <div className="bg-accent/20 rounded-2xl p-4 border border-accent/30 shadow-sm flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center flex-shrink-0">
             <Flame className="w-5 h-5 text-accent-foreground" />
           </div>

@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { format, parseISO, differenceInDays } from 'date-fns';
+import { moduleColor, moduleCode } from '@/lib/moduleColors';
 
 const typeIcons = {
   notes: FileText, textbook: BookOpen, pdf: File,
@@ -45,73 +46,72 @@ function DeadlineBadge({ date, label }) {
 
 export default function ModuleCard({ module, onDelete }) {
   const [expanded, setExpanded] = useState(false);
-  const Icon = typeIcons[module.type] || File;
   const units = module.units || [];
+  const color = moduleColor(module.id);
+  const code = moduleCode(module.title);
+  const progress = module.progress_percent || 0;
 
   return (
     <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden">
-      <div className="p-4">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3 flex-1 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center flex-shrink-0">
-              <Icon className="w-5 h-5 text-primary" />
-            </div>
+      <div className="p-4 flex gap-3">
+        {/* Module accent bar */}
+        <span className={cn('w-1.5 rounded-full self-stretch shrink-0', color.bar)} />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold text-sm">{module.title}</h3>
-                <Badge className={cn("text-[10px] h-4 px-1.5", priorityColors[module.priority || 'medium'])}>
-                  {module.priority || 'medium'}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">{module.subject}</p>
+              <p className="font-mono text-xs font-semibold text-muted-foreground">{code}</p>
+              <h3 className="font-heading font-bold text-base tracking-tight mt-0.5 truncate">
+                {module.title}
+              </h3>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7 -mt-1 -mr-1 flex-shrink-0">
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link to={`/modules/${module.id}/units`}>
+                    <Pencil className="w-4 h-4 mr-2" /> Edit parsed units
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDelete(module)} className="text-destructive">
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7 -mt-1 -mr-1 flex-shrink-0">
-                <MoreVertical className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link to={`/modules/${module.id}/units`}>
-                  <Pencil className="w-4 h-4 mr-2" /> Edit parsed units
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onDelete(module)} className="text-destructive">
-                <Trash2 className="w-4 h-4 mr-2" /> Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
 
-        {/* Deadlines */}
-        {(module.exam_date || module.assignment_date) && (
-          <div className="flex flex-wrap gap-2 mt-2">
-            {module.exam_date && <DeadlineBadge date={module.exam_date} label="Exam" />}
-            {module.assignment_date && <DeadlineBadge date={module.assignment_date} label="Assignment" />}
-          </div>
-        )}
-
-        {/* Progress */}
-        <div className="mt-3 flex items-center gap-2">
-          <div className="flex-1">
-            <Progress value={module.progress_percent || 0} className="h-1.5" />
-          </div>
-          <span className="text-[10px] text-muted-foreground font-medium w-8 text-right">
-            {module.progress_percent || 0}%
-          </span>
-        </div>
-
-        {/* Meta */}
-        <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
-          {module.estimated_hours && <span>{module.estimated_hours}h total</span>}
-          {module.complexity && (
-            <span className={cn("capitalize font-medium", complexityColors[module.complexity])}>
-              {module.complexity}
-            </span>
+          {/* Meta */}
+          {(module.estimated_hours || units.length > 0) && (
+            <p className="font-mono text-xs text-muted-foreground mt-1">
+              {[
+                units.length > 0 ? `${units.length} units` : null,
+                module.estimated_hours ? `~${module.estimated_hours} h` : null,
+              ].filter(Boolean).join(' · ')}
+            </p>
           )}
-          {units.length > 0 && <span>{units.length} units</span>}
+
+          {/* Deadlines */}
+          {(module.exam_date || module.assignment_date) && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {module.exam_date && <DeadlineBadge date={module.exam_date} label="Exam" />}
+              {module.assignment_date && <DeadlineBadge date={module.assignment_date} label="Due" />}
+            </div>
+          )}
+
+          {/* Progress */}
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn('h-full rounded-full transition-all', color.progress)}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="font-mono text-xs font-semibold w-9 text-right">{progress}%</span>
+          </div>
         </div>
       </div>
 
