@@ -117,6 +117,22 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // Start a password reset. The backend always returns 200 (no email
+  // enumeration) and, if the address exists, deep-links the user back into
+  // the app via studypartner://reset-password?token=...
+  forgotPassword: (email: string) =>
+    request<{ status: string }>('/users/password/forgot', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  // Complete a reset with the single-use token from the emailed deep link.
+  resetPassword: (token: string, new_password: string) =>
+    request<{ status: string; user_id: string }>('/users/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password }),
+    }),
+
   getMe: () => request<UserSettings & { id: string }>('/users/me'),
 
   updateMe: (payload: {

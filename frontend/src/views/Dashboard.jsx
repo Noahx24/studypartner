@@ -19,7 +19,7 @@ export default function Dashboard() {
   // A week of sessions: today's list plus the "Coming Up" preview.
   const { data } = useQuery({
     queryKey: ['daily-plan', user?.id, today],
-    queryFn: () => api.getPlanRange(user.id, today, format(addDays(new Date(), 7), 'yyyy-MM-dd')),
+    queryFn: () => api.getSessionsRange(user.id, today, format(addDays(new Date(), 7), 'yyyy-MM-dd')),
     enabled: !!user,
   });
 

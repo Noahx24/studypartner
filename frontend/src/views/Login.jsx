@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -110,6 +110,17 @@ export default function Login() {
               autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
             />
           </div>
+
+          {tab === 'login' && (
+            <div className="text-right -mt-1">
+              <Link
+                to="/forgot-password"
+                className="text-sm font-medium text-slate-500 hover:text-slate-700 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+          )}
 
           {error && (
             <p className="text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">

@@ -34,6 +34,10 @@ export function useMoodleDeepLink() {
 
     const handle = async (url) => {
       if (!url || !url.toLowerCase().startsWith(SCHEME_PREFIX)) return;
+      // The same scheme also carries the password-reset deep link
+      // (studypartner://reset-password?token=...), handled separately by
+      // useResetPasswordDeepLink — ignore it here.
+      if (url.toLowerCase().startsWith('studypartner://reset-password')) return;
 
       // Strip the scheme. Moodle emits `studypartner://token=<blob>` with
       // no host segment, so what's left is the parameter list.
