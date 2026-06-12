@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date, datetime
 import json
+import os
 from pathlib import Path
 import sqlite3
 
@@ -31,7 +32,11 @@ from .src.models import (
 )
 
 
-DB_PATH = Path("data/studypartner.db")
+# DB location is env-overridable so the test suite (and any throwaway run)
+# points at its own file instead of clobbering the dev database. The test
+# suite's _fresh_db() unlinks this path between cases, so it must NOT default
+# to the dev DB when running under pytest — conftest sets STUDYPARTNER_DB_PATH.
+DB_PATH = Path(os.environ.get("STUDYPARTNER_DB_PATH", "data/studypartner.db"))
 UPLOAD_ROOT = Path("data/uploads")
 
 

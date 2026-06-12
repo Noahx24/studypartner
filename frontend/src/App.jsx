@@ -6,6 +6,7 @@ import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-d
 
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { useMoodleDeepLink } from '@/lib/useMoodleDeepLink';
+import { useResetPasswordDeepLink } from '@/lib/useResetPasswordDeepLink';
 import ErrorBoundary from './components/ErrorBoundary';
 import OfflineBanner from '@/components/OfflineBanner';
 
@@ -22,6 +23,8 @@ const CalendarView = lazy(() => import('./views/CalendarView'));
 const StudyPlan = lazy(() => import('./views/StudyPlan'));
 const Profile = lazy(() => import('./views/Profile'));
 const Login = lazy(() => import('./views/Login'));
+const ForgotPassword = lazy(() => import('./views/ForgotPassword'));
+const ResetPassword = lazy(() => import('./views/ResetPassword'));
 const Onboarding = lazy(() => import('./views/Onboarding'));
 const CatchUp = lazy(() => import('./views/CatchUp'));
 const Pacing = lazy(() => import('./views/Pacing'));
@@ -32,6 +35,13 @@ const Spinner = () => (
     <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
   </div>
 );
+
+// Always mounted (every route, logged in or out) so the password-reset
+// deep link is caught even when the user is signed out on /login.
+const GlobalDeepLinks = () => {
+  useResetPasswordDeepLink();
+  return null;
+};
 
 const AuthenticatedApp = () => {
   const { isAuthenticated, isLoadingAuth } = useAuth();
@@ -68,9 +78,12 @@ function App() {
         <QueryClientProvider client={queryClientInstance}>
           <Router>
             <OfflineBanner />
+            <GlobalDeepLinks />
             <Suspense fallback={<Spinner />}>
               <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/*" element={<AuthenticatedApp />} />
               </Routes>
             </Suspense>

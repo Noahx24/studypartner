@@ -46,7 +46,7 @@ pack/quiz/summary journey is therefore unreachable.
 
 | Feature | Backend | Frontend |
 |---|---|---|
-| **Password reset** | `POST /users/password/forgot`, `POST /users/password/reset` (+ `test_password_reset.py`, `utils/mailer.py`) | No "Forgot password?" link or reset screen on `/login`. Unreachable. |
+| ~~**Password reset**~~ | `POST /users/password/forgot`, `POST /users/password/reset` | ✅ **Now built** — "Forgot password?" link on `/login`, `/forgot-password` and `/reset-password` screens, plus a `studypartner://reset-password?token=...` deep-link handler. Screens `47`–`53`. |
 | **ICS deadline import** | `POST /moodle/ics/import` (+ `test_ics_import.py`) | `icsImport` exists in `client.ts` but no upload UI invokes it. Unreachable. |
 
 ## 4. Orphaned / dead components

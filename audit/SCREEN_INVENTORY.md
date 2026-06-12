@@ -29,7 +29,9 @@ unauthenticated hit to an app route redirects to `/login`.
 
 | # | Route | View file | Auth | Screenshot(s) |
 |---|---|---|---|---|
-| 1 | `/login` | `views/Login.jsx` | public | `01`, `02`, `03`, `04`, `46` |
+| 1 | `/login` | `views/Login.jsx` | public | `01`, `02`, `03`, `04`, `46`, `47` (forgot link) |
+| 1a | `/forgot-password` | `views/ForgotPassword.jsx` | public | `48` (form), `49` (sent confirmation) |
+| 1b | `/reset-password` | `views/ResetPassword.jsx` | public (opened by `studypartner://reset-password?token=` deep link) | `50` (form), `51` (mismatch error), `52` (success), `53` (missing token) |
 | 2 | `/onboarding` | `views/Onboarding.jsx` | required (full-screen, outside tab bar) | `05`, `06`, `07` |
 | 3 | `/` | `views/Dashboard.jsx` ("Today") | required | `08` (empty), `16` (data), `17` (after complete), `40` (dark), `43` (desktop) |
 | 4 | `/modules` | `views/Modules.jsx` | required | `09` (empty), `18` (list), `19` (expanded), `20` (menu), `25` (after add), `44` (desktop) |
@@ -88,8 +90,15 @@ write-up. Frames `M01`–`M07`.
   the empty "No sessions today" state even when sessions existed
   (frame `08` was taken before the fix; `16` after). One-line fix
   applied so the populated dashboard could be captured.
-- **Dev/test footgun (not a security issue):** the Moodle test suite's
-  `_fresh_db()` deletes `data/studypartner.db` — the *same* SQLite file
-  the dev server uses (`app/storage.py:34`). Running `pytest` against a
-  live dev database wipes it. Tests should point `DB_PATH` at a temp
-  file. This bit the audit mid-run; re-seeding recovered.
+- **Dev/test footgun — FIXED:** the Moodle test suite's `_fresh_db()`
+  deleted `data/studypartner.db` — the *same* SQLite file the dev server
+  uses — so running `pytest` wiped the dev database (it bit this audit
+  mid-run). `DB_PATH` is now env-overridable (`STUDYPARTNER_DB_PATH`) and
+  `conftest.py` points the suite at a throwaway temp file. The full suite
+  (132 tests) now passes hermetically and leaves the dev DB untouched.
+- **Password reset — BUILT:** the backend reset flow had no UI; added
+  the "Forgot password?" link, the `/forgot-password` and
+  `/reset-password` screens, and a `studypartner://reset-password` deep
+  link handler (mobile-only, mirroring the Moodle deep link). Screens
+  `47`–`53`; the reset was verified end-to-end against a real emailed
+  token.

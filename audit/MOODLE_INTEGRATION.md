@@ -39,6 +39,21 @@ The OAuth chain, tenant resolution, and credential acceptance are all
 confirmed working. The integration is wired correctly end-to-end up to
 the identity provider's own multi-factor gate.
 
+### Second run — held open for live MFA approval
+
+A follow-up run (`M10`, `M11`) kept the browser session alive at the
+number-match prompt so the account owner could approve on their phone.
+The driver was built to intercept the post-approval
+`studypartner://token=...` redirect (doing in a headless browser what
+the native deep-link handler does) and then POST the blob to
+`/moodle/launch/callback` + run a sync. The number-match digits (`47`)
+were surfaced live. The session polled Microsoft's `ProcessAuth` page
+for the full 270 s window but the push approval was **not completed in
+time**, so no token was captured (`M11`). This is a timing/coordination
+limitation of the manual approval, not a code defect — the integration
+was still proven correct up to the gate. A retry simply needs the
+approval tapped within the window.
+
 ## Why the flow was not completed
 
 Two independent reasons — either alone is sufficient:
