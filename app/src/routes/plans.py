@@ -13,6 +13,7 @@ from app.src.utils.auth import get_current_user
 from app.storage import (
     clear_planned_sessions,
     get_assessment_due_date,
+    get_module_study_units,
     get_modules,
     get_sessions,
     get_units_for_user,
@@ -87,6 +88,26 @@ def generate_plan_endpoint(
     }
 
 
+def _serialize_sessions(user_id: str, sessions: list) -> list[dict]:
+    """Session rows carry only ids; the client renders a human card
+    (unit title + module name + minutes), so join the names in here."""
+    module_names = {m.id: m.name for m in get_modules(user_id)}
+    unit_titles: dict[str, str] = {}
+    for mod_id in {s.module_id for s in sessions}:
+        for u in get_module_study_units(mod_id)["study_units"]:
+            unit_titles[u["id"]] = u["title"]
+    return [
+        s.__dict__
+        | {
+            "session_date": s.session_date.isoformat(),
+            "title": unit_titles.get(s.unit_id) or module_names.get(s.module_id, "Study session"),
+            "subject": module_names.get(s.module_id),
+            "duration_minutes": s.planned_minutes,
+        }
+        for s in sessions
+    ]
+
+
 @router.get("/daily/{user_id}/{for_date}")
 def daily_plan_endpoint(
     user_id: str,
@@ -97,7 +118,24 @@ def daily_plan_endpoint(
         raise HTTPException(status_code=403, detail="Access denied")
     d = _parse_date(for_date, "for_date")
     sessions = [s for s in get_sessions(user_id, d, d) if s.status == "planned"]
-    return {"date": for_date, "sessions": [s.__dict__ | {"session_date": s.session_date.isoformat()} for s in sessions]}
+    return {"date": for_date, "sessions": _serialize_sessions(user_id, sessions)}
+
+
+@router.get("/range/{user_id}")
+def sessions_range_endpoint(
+    user_id: str,
+    from_date: str,
+    to_date: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """All sessions (any status) in [from_date, to_date] — the calendar
+    month view needs completed ones too, to mark progress dots."""
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    d1 = _parse_date(from_date, "from_date")
+    d2 = _parse_date(to_date, "to_date")
+    sessions = get_sessions(user_id, d1, d2)
+    return {"sessions": _serialize_sessions(user_id, sessions)}
 
 
 @router.post("/sessions/{session_id}/complete")

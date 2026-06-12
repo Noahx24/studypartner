@@ -393,6 +393,39 @@ def get_user_by_email(email: str) -> User | None:
     return _row_to_user(row) if row else None
 
 
+def update_user_settings(
+    user_id: str,
+    *,
+    name: str | None = None,
+    hours_per_day: float | None = None,
+    days_per_week: int | None = None,
+    pace: str | None = None,
+    custom_minutes_per_500_words: int | None = None,
+    max_daily_hours: float | None = None,
+) -> None:
+    """Partial update of the user's plannable settings. Only the fields
+    passed as non-None are written; identity/credential columns are
+    untouchable from here by design."""
+    sets: list[str] = []
+    args: list = []
+    for col, val in (
+        ("name", name),
+        ("hours_per_day", hours_per_day),
+        ("days_per_week", days_per_week),
+        ("pace", pace),
+        ("custom_minutes_per_500_words", custom_minutes_per_500_words),
+        ("max_daily_hours", max_daily_hours),
+    ):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            args.append(val)
+    if not sets:
+        return
+    args.append(user_id)
+    with get_connection() as conn:
+        conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", args)
+
+
 def get_idempotency_response(user_id: str, key: str, now_iso: str) -> str | None:
     """Return the pack_id previously minted for this (user, key) pair,
     or None if no live entry exists. Also reaps expired rows opportunistically."""

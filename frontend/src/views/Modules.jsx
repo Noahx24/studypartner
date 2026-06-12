@@ -10,6 +10,8 @@ import FetchFromMyModulesButton from '../components/modules/FetchFromMyModulesBu
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
+import { api } from '@/api/client';
+import { modulesRepo } from '@/db/repos';
 
 export default function Modules() {
   const { user } = useAuth();
@@ -20,9 +22,24 @@ export default function Modules() {
   const { data } = useQuery({
     queryKey: ['modules', user?.id],
     queryFn: async () => {
-      // Modules are stored locally in IndexedDB via the sync layer;
-      // fall back to an empty list if the repo isn't populated yet.
-      return { modules: [] };
+      // Server first (tiny payload: id/name/type/next deadline per module),
+      // refreshing the IndexedDB cache; offline falls back to the cache so
+      // the list still renders with no connection.
+      try {
+        const { modules } = await api.listModules();
+        await modulesRepo.upsertMany(
+          modules.map((m) => ({
+            id: m.id,
+            user_id: user.id,
+            name: m.name,
+            module_type: m.module_type,
+            next_due_date: m.next_due_date,
+          })),
+        );
+        return { modules };
+      } catch {
+        return { modules: await modulesRepo.listForUser(user.id) };
+      }
     },
     enabled: !!user,
   });
@@ -34,8 +51,8 @@ export default function Modules() {
   );
 
   const sorted = [...filtered].sort((a, b) => {
-    const aDate = a.due_date || '9999-12-31';
-    const bDate = b.due_date || '9999-12-31';
+    const aDate = a.next_due_date || '9999-12-31';
+    const bDate = b.next_due_date || '9999-12-31';
     return aDate.localeCompare(bDate);
   });
 
@@ -93,7 +110,16 @@ export default function Modules() {
       ) : (
         <div className="space-y-3">
           {sorted.map(module => (
-            <ModuleCard key={module.id} module={module} onDelete={handleDelete} />
+            <ModuleCard
+              key={module.id}
+              module={{
+                ...module,
+                title: module.name,
+                type: module.module_type,
+                assignment_date: module.next_due_date,
+              }}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}

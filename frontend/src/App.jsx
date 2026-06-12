@@ -22,6 +22,7 @@ const CalendarView = lazy(() => import('./views/CalendarView'));
 const StudyPlan = lazy(() => import('./views/StudyPlan'));
 const Profile = lazy(() => import('./views/Profile'));
 const Login = lazy(() => import('./views/Login'));
+const Onboarding = lazy(() => import('./views/Onboarding'));
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
 
 const Spinner = () => (
@@ -40,6 +41,8 @@ const AuthenticatedApp = () => {
 
   return (
     <Routes>
+      {/* Fullscreen, outside the tab-bar layout: first-run setup */}
+      <Route path="/onboarding" element={<Onboarding />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/modules" element={<Modules />} />

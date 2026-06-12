@@ -119,7 +119,30 @@ export const api = {
 
   getMe: () => request<UserSettings & { id: string }>('/users/me'),
 
+  updateMe: (payload: {
+    name?: string;
+    hours_per_day?: number;
+    days_per_week?: number;
+    pace?: string;
+    custom_minutes_per_500_words?: number;
+    max_daily_hours?: number;
+  }) =>
+    request<UserSettings & { id: string }>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
   getUser: (userId: string) => request<UserSettings & { id: string }>(`/users/${userId}`),
+
+  listModules: () =>
+    request<{
+      modules: Array<{
+        id: string;
+        name: string;
+        module_type: 'year' | 'semester';
+        next_due_date: string | null;
+      }>;
+    }>('/modules'),
 
   createModule: (userId: string, module: ModuleForm) =>
     request<{ status: string; module_id: string }>('/modules', {
@@ -233,6 +256,23 @@ export const api = {
 
   getDailyPlan: (userId: string, forDate = isoDate(new Date())) =>
     request<DailyPlanResponse>(`/plans/daily/${userId}/${forDate}`),
+
+  getSessionsRange: (userId: string, fromDate: string, toDate: string) =>
+    request<DailyPlanResponse>(
+      `/plans/range/${userId}?from_date=${fromDate}&to_date=${toDate}`,
+    ),
+
+  listAssessments: () =>
+    request<{
+      assessments: Array<{
+        id: string;
+        module_id: string;
+        module_name: string;
+        title: string;
+        due_date: string;
+        status: string;
+      }>;
+    }>('/assessments'),
 
   completeSession: (sessionId: string) =>
     request<{ status: string; session_id: string }>(`/plans/sessions/${sessionId}/complete`, { method: 'POST' }),

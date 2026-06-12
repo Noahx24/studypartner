@@ -6,6 +6,8 @@ import {
 } from 'date-fns';
 import { ChevronLeft, ChevronRight, CheckCircle2, Clock, GraduationCap, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { api } from '@/api/client';
+import { useAuth } from '@/lib/AuthContext';
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -19,9 +21,41 @@ function DayDot({ type }) {
   return <span className={cn("w-1.5 h-1.5 rounded-full inline-block", colors[type] || 'bg-muted')} />;
 }
 
+// Exams are user-entered assessments; distinguish them from assignment
+// deadlines by title so the calendar can colour them differently.
+const isExam = (a) => /exam|examination/i.test(a.title);
+
 export default function CalendarView() {
+  const { user } = useAuth();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(new Date());
+
+  const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
+  const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+
+  const { data: sessionsData } = useQuery({
+    queryKey: ['sessions-range', user?.id, monthStart],
+    queryFn: () => api.getSessionsRange(user.id, monthStart, monthEnd),
+    enabled: !!user,
+  });
+  const sessions = useMemo(
+    () => (sessionsData?.sessions ?? []).map((s) => ({ ...s, date: s.session_date })),
+    [sessionsData],
+  );
+
+  const { data: assessmentsData } = useQuery({
+    queryKey: ['assessments', user?.id],
+    queryFn: () => api.listAssessments(),
+    enabled: !!user,
+  });
+  const assessments = useMemo(
+    () =>
+      (assessmentsData?.assessments ?? []).map((a) => ({
+        ...a,
+        subject: a.module_name,
+      })),
+    [assessmentsData],
+  );
 
   const days = useMemo(() => {
     const start = startOfMonth(currentMonth);
@@ -36,9 +70,10 @@ export default function CalendarView() {
     const dots = [];
     const daySessions = sessions.filter(s => s.date === dateStr);
     if (daySessions.some(s => s.status === 'completed')) dots.push('completed');
-    else if (daySessions.some(s => s.status === 'scheduled')) dots.push('session');
-    if (modules.some(m => m.exam_date === dateStr)) dots.push('exam');
-    if (modules.some(m => m.assignment_date === dateStr)) dots.push('assignment');
+    else if (daySessions.length > 0) dots.push('session');
+    const dayAssessments = assessments.filter(a => a.due_date === dateStr);
+    if (dayAssessments.some(isExam)) dots.push('exam');
+    if (dayAssessments.some(a => !isExam(a))) dots.push('assignment');
     return dots;
   };
 
@@ -47,12 +82,9 @@ export default function CalendarView() {
     ...sessions
       .filter(s => s.date === selectedDateStr)
       .map(s => ({ type: 'session', data: s })),
-    ...modules
-      .filter(m => m.exam_date === selectedDateStr)
-      .map(m => ({ type: 'exam', data: m })),
-    ...modules
-      .filter(m => m.assignment_date === selectedDateStr)
-      .map(m => ({ type: 'assignment', data: m })),
+    ...assessments
+      .filter(a => a.due_date === selectedDateStr)
+      .map(a => ({ type: isExam(a) ? 'exam' : 'assignment', data: a })),
   ];
 
   return (

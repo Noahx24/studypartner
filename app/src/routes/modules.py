@@ -13,9 +13,11 @@ from app.src.utils.ratelimit import limiter
 from app.storage import (
     add_assessment,
     add_module,
+    get_assessments_for_module,
     get_learning_units_for_module,
     get_module_content,
     get_module_study_units,
+    get_modules,
     get_user,
 )
 
@@ -41,6 +43,28 @@ class CreateAssessmentRequest(BaseModel):
     weight: float = Field(default=1.0, ge=0, le=100)
 
 
+@router.get("/modules")
+def list_modules_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+    """All modules for the current user, with each module's next open
+    deadline. Deliberately tiny (a few hundred bytes per module) — this is
+    the mobile shell's primary list view and must stay cheap on data."""
+    modules = []
+    for m in get_modules(current_user.id):
+        upcoming = [
+            a.due_date for a in get_assessments_for_module(m.id)
+            if a.due_date >= date.today()
+        ]
+        modules.append(
+            {
+                "id": m.id,
+                "name": m.name,
+                "module_type": m.module_type.value,
+                "next_due_date": min(upcoming).isoformat() if upcoming else None,
+            }
+        )
+    return {"modules": modules}
+
+
 @router.post("/modules")
 def add_module_endpoint(
     body: CreateModuleRequest,
@@ -56,6 +80,26 @@ def add_module_endpoint(
     )
     add_module(module)
     return {"status": "created", "module_id": module.id}
+
+
+@router.get("/assessments")
+def list_assessments_endpoint(current_user: User = Depends(get_current_user)) -> dict:
+    """Every assessment across the user's modules, for the calendar view.
+    Moodle-synced and manually added deadlines come back together."""
+    assessments = []
+    for m in get_modules(current_user.id):
+        for a in get_assessments_for_module(m.id):
+            assessments.append(
+                {
+                    "id": a.id,
+                    "module_id": m.id,
+                    "module_name": m.name,
+                    "title": a.title,
+                    "due_date": a.due_date.isoformat(),
+                    "status": a.status.value if hasattr(a.status, "value") else a.status,
+                }
+            )
+    return {"assessments": assessments}
 
 
 @router.post("/assessments")
