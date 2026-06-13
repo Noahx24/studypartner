@@ -21,11 +21,12 @@ end to end against real UNISA myModules data and produced the following
 fixes and additions. Full audit, sitemap, and screenshots live in
 [`audit/`](audit/).
 
-- **Moodle return scheme is `moodlemobile://`, not `studypartner://`.**
-  The live test proved UNISA forces the `moodlemobile` scheme on the
-  launch redirect, so the native app must register `moodlemobile` and
-  the deep-link handler must match `moodlemobile://token=...`. See
-  "Connecting Moodle" below and
+- **Moodle token return scheme — documented finding.** The live test
+  showed UNISA forces `moodlemobile://` on the launch redirect even
+  though the app requests `studypartner`. The backend handles the token
+  blob regardless of scheme (no change needed); the only practical
+  consequence is that a native build targeting such an institution must
+  also register `moodlemobile`. See "Connecting Moodle" below and
   [`audit/MOODLE_INTEGRATION.md`](audit/MOODLE_INTEGRATION.md).
 - **Study-guide parser fixed** so table-of-contents-led guides no longer
   collapse every chapter into one unit; titles are cleaned of ligatures,
@@ -66,51 +67,48 @@ student to paste a token manually.
 
 This integration uses Moodle's `tool_mobile/launch.php`, the same
 handshake the official Moodle Mobile app uses. The flow only completes
-end-to-end inside a native shell (Capacitor) that registers a custom
-URL scheme with the OS. Moodle core does **not** accept `https://`
-callbacks here: `tool_mobile` enforces the RFC 3986 scheme grammar
-(letters/digits/`.`/`+`/`-`) on the `urlscheme` parameter and rejects
-anything else with *"Invalid parameter: the value of urlscheme isn't
-valid"*.
+end-to-end inside a native shell (Capacitor) that registers the
+`studypartner://` URL scheme with the OS. Moodle core does **not**
+accept `https://` callbacks here: `tool_mobile` enforces the RFC 3986
+scheme grammar (letters/digits/`.`/`+`/`-`) on the `urlscheme`
+parameter and rejects anything else with *"Invalid parameter: the value
+of urlscheme isn't valid"*.
 
-> **Return scheme is `moodlemobile://`, not `studypartner://`.**
-> A live end-to-end test against UNISA myModules
-> (`mymodules.dtls.unisa.ac.za`, 2026-06-12) showed the institution
-> **ignores the requested `urlscheme` and forces `moodlemobile`** — the
-> redirect Moodle actually emits is `moodlemobile://token=<blob>`, the
-> official Moodle Mobile scheme. So the **backend/native side must
-> expect the token to arrive on `moodlemobile://`, not
-> `studypartner://`**: the native app registers `moodlemobile`, and the
-> deep-link handler matches `moodlemobile://token=...`. The token blob
-> itself is scheme-independent (`<signature>:::<token>:::<privatetoken>`),
-> so `/moodle/launch/callback` validates it the same way regardless of
-> which scheme wrapped the redirect. See
-> [`audit/MOODLE_INTEGRATION.md`](audit/MOODLE_INTEGRATION.md) for the
-> captured evidence.
->
-> Caveat: `moodlemobile` is also the official UNISA myModules app's
-> scheme, so on a device with that app installed the OS may route the
-> redirect there. Registering an institution-specific scheme (if the
-> Moodle admin sets one) is the robust long-term fix.
+> **Note — token return scheme on UNISA myModules.** A live end-to-end
+> test (`mymodules.dtls.unisa.ac.za`, 2026-06-12) found UNISA **ignored
+> the requested `urlscheme=studypartner` and forced `moodlemobile`** —
+> the redirect Moodle actually emitted was `moodlemobile://token=<blob>`
+> (its own official Moodle Mobile scheme). The app still requests
+> `studypartner` (correct — that is the bare scheme we own), and the
+> **backend needs no change**: the token blob is
+> `<signature>:::<token>:::<privatetoken>` and `/moodle/launch/callback`
+> validates it identically regardless of which scheme wrapped the
+> redirect. The only practical consequence is client-side — to catch
+> the redirect on a real device against an institution that forces
+> `moodlemobile`, the native build must **also register `moodlemobile`**
+> as a URL scheme (alongside `studypartner`). `moodlemobile` collides
+> with the official myModules app, so an institution-specific scheme is
+> the robust long-term fix. Captured evidence:
+> [`audit/MOODLE_INTEGRATION.md`](audit/MOODLE_INTEGRATION.md).
 
 ```
 1. Student taps "Fetch from myModules" inside the StudyPartner app
-2. Frontend  → POST /moodle/launch { urlscheme: "moodlemobile" }
+2. Frontend  → POST /moodle/launch { urlscheme: "studypartner" }
    Backend   → mints a single-use passport (10-min TTL, server-side)
               → returns
                 <MOODLE>/admin/tool/mobile/launch.php
                   ?service=moodle_mobile_app
                   &passport=<random>
-                  &urlscheme=moodlemobile
+                  &urlscheme=studypartner
 3. Frontend stashes the passport in localStorage and opens the launch
    URL in the system browser (Capacitor's @capacitor/browser plugin).
 4. Moodle sees the user isn't signed in → redirects to the school's
    SSO tenant (Microsoft, SAML, OIDC, depending on the institution).
 5. SSO authenticates the student → asserts identity back to Moodle.
 6. Moodle mints a WS token for that user, redirects to:
-        moodlemobile://token=<base64-blob>
-   (Moodle may force this scheme regardless of the urlscheme sent in
-   step 2 — see the note above.)
+        studypartner://token=<base64-blob>
+   (Some institutions — UNISA among them — force `moodlemobile://`
+   here regardless of the urlscheme sent in step 2; see the note above.)
 7. The OS routes the custom-scheme URL to the StudyPartner native app.
    Capacitor's App.appUrlOpen listener fires; the deep-link handler
    reads `token` from the URL, reads `passport` from localStorage,
@@ -131,17 +129,19 @@ manual paste.
 
 ### Why a native shell is mandatory
 
-The redirect Moodle issues at step 6 is `moodlemobile://token=...`,
-which only an OS-registered URL-scheme handler can catch. A pure-web
-build of StudyPartner cannot receive that redirect: the browser
-attempts to open the custom scheme and, finding no handler, fails. The
-Capacitor wrapper is what registers the scheme; without it the launch
-flow can't complete. There is no manual-paste fallback, by design.
+The redirect Moodle issues at step 6 is `studypartner://token=...`
+(or `moodlemobile://token=...` on institutions that force their own
+scheme — see the note above), which only an OS-registered URL-scheme
+handler can catch. A pure-web build of StudyPartner cannot receive that
+redirect: the browser attempts to open the custom scheme and, finding
+no handler, fails. The Capacitor wrapper is what registers the scheme;
+without it the launch flow can't complete. There is no manual-paste
+fallback, by design.
 
 (The audit reproduced exactly this: a headless browser could drive SSO
-and MFA to completion but could not follow the `moodlemobile://`
-redirect, so it read the token off the launch page's "click here" link
-to stand in for the OS handler — see `audit/MOODLE_INTEGRATION.md`.)
+and MFA to completion but could not follow the custom-scheme redirect,
+so it read the token off the launch page's "click here" link to stand
+in for the OS handler — see `audit/MOODLE_INTEGRATION.md`.)
 
 ### Building the native shell
 
@@ -149,9 +149,8 @@ Capacitor 6 is wired into `frontend/`. The runtime listener and launch
 helper are already in the code:
 
 - `frontend/src/lib/useMoodleDeepLink.js` — listens for
-  `App.appUrlOpen`, parses `moodlemobile://token=...` (the scheme Moodle
-  returns; see the note above), POSTs the token + passport to
-  `/moodle/launch/callback`.
+  `App.appUrlOpen`, parses `studypartner://token=...`, POSTs the token
+  + passport to `/moodle/launch/callback`.
 - `frontend/src/components/modules/FetchFromMyModulesButton.jsx` — on
   native, opens the Moodle launch URL via `@capacitor/browser` so SSO
   cookies live in the system browser; on web, falls back to a plain
@@ -169,11 +168,13 @@ npx cap add android
 npx cap sync
 ```
 
-Then register the `moodlemobile` URL scheme so the OS routes the
-redirect back into the app. (Moodle returns the token on
-`moodlemobile://` regardless of the `urlscheme` requested — see the
-note in "Connecting Moodle" above. Registering `studypartner` would
-leave the redirect with no handler.)
+Then register the `studypartner` URL scheme so the OS routes the
+redirect back into the app.
+
+> If your institution forces `moodlemobile` (UNISA does — see the note
+> in "Connecting Moodle"), **also** register `moodlemobile` so that
+> redirect lands too. Add it as an extra `<string>` / `<data>` entry
+> beside `studypartner` in the snippets below.
 
 **iOS** — open `ios/App/App/Info.plist` (in Xcode or a text editor)
 and add:
@@ -186,6 +187,8 @@ and add:
     <string>app.studypartner.client</string>
     <key>CFBundleURLSchemes</key>
     <array>
+      <string>studypartner</string>
+      <!-- also register moodlemobile if your institution forces it -->
       <string>moodlemobile</string>
     </array>
   </dict>
@@ -200,6 +203,8 @@ find the main `<activity>` block, and add an intent filter:
   <action android:name="android.intent.action.VIEW" />
   <category android:name="android.intent.category.DEFAULT" />
   <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="studypartner" />
+  <!-- also register moodlemobile if your institution forces it -->
   <data android:scheme="moodlemobile" />
 </intent-filter>
 ```
