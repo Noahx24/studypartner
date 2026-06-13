@@ -224,6 +224,15 @@ export default function AddModuleDialog({ open, onOpenChange, onCreated }) {
         pasted_text: !file ? `${form.title}: ${form.subject}` : undefined,
         file: file || undefined,
       });
+      // The upload response is counts-only; pull the real extracted units so
+      // the confirm screen can list them (and "Units Found" isn't stuck at 0).
+      const struct = await api.getModuleStructure(moduleId).catch(() => null);
+      const units = (struct?.learning_units || []).map((u) => ({
+        number: u.ordinal,
+        title: u.topic,
+        summary: `${(u.subtopics || []).length} subtopic${(u.subtopics || []).length === 1 ? '' : 's'}`,
+        estimated_hours: Math.max(1, Math.ceil((u.subtopics || []).length * 0.5)),
+      }));
       setAnalysis({
         module_id: moduleId,
         learning_unit_count: result.learning_unit_count,
@@ -231,7 +240,7 @@ export default function AddModuleDialog({ open, onOpenChange, onCreated }) {
         topics_summary: `${result.learning_unit_count} learning units with ${result.subtopic_count} subtopics extracted.`,
         estimated_hours: Math.ceil(result.subtopic_count * 0.5),
         complexity: result.subtopic_count > 20 ? 'heavy' : result.subtopic_count > 10 ? 'moderate' : 'light',
-        units: [],
+        units,
       });
       setStep(2);
     } catch (err) {

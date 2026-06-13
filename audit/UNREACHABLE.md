@@ -4,20 +4,25 @@ Things that exist in the codebase (routes, components, API surface, or
 documented files) but could **not** be reached through the running web
 UI during this audit, with the reason for each.
 
-## 1. Gated on the native shell (by design)
+## 1. Moodle live flow — NOW REACHED ✅
 
-These are unreachable from a web/headless browser because they depend
-on the Capacitor custom-URL-scheme redirect, exactly as the README's
-"Why a native shell is mandatory" section states. Not bugs.
+Previously listed here as native-shell-gated. The full live handshake
+was since completed against UNISA myModules (MFA approved by the account
+owner), so these are now captured with **real data**:
 
-| Item | Why unreachable |
+| Item | Status |
 |---|---|
-| `POST /moodle/launch/callback` (live) | Final Moodle redirect is `studypartner://token=...`; only an OS-registered scheme handler (native build) catches it. |
-| Populated `/modules/materials` | Needs a completed Moodle sync; only the **empty** state (`frame 10`) is reachable on web. |
-| Moodle-sourced modules / assessments on Modules & Calendar | Same dependency — no live sync without the callback. |
+| `POST /moodle/launch/callback` (live) | ✅ real token accepted, account persisted (`UNISA : myModules`, moodle_user_id 2630263) |
+| Populated `/modules/materials` | ✅ 258 real resources — frames `M13`–`M16` |
+| Moodle-sourced modules / assessments | ✅ 6 modules + 4 assessments synced — frame `M12` |
 
-Verified as far as the IdP MFA gate; backend paths proven by the
-15/15 passing test suite. See `MOODLE_INTEGRATION.md`.
+**Important caveat (see `MOODLE_INTEGRATION.md`):** UNISA forces
+`urlscheme=moodlemobile`, ignoring StudyPartner's requested
+`studypartner` scheme. On a real device the documented
+`studypartner://` deep-link handler would therefore **never fire** — the
+redirect goes to `moodlemobile://`. The backend callback is correct; the
+client-side scheme assumption in the README is not. This is the one
+genuine integration defect the live test uncovered.
 
 ## 2. Implemented backend + API client, but NO UI surface
 
