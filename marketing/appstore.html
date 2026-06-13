@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>StudyPartner — App Store preview</title>
+<style>
+  :root { --ios-blue:#0a84ff; --ink:#1d1d1f; --grey:#6e6e73; --hair:#d2d2d7; }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-font-smoothing:antialiased; }
+  body {
+    font-family:-apple-system,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+    color:var(--ink); background:#fff; width:1240px; margin:0 auto; padding:56px 64px 80px;
+  }
+  .topbar { font-size:15px; color:var(--ios-blue); margin-bottom:28px; }
+  /* Header */
+  .header { display:flex; gap:28px; align-items:center; padding-bottom:28px; border-bottom:1px solid var(--hair); }
+  .icon {
+    width:128px; height:128px; border-radius:28px; flex:none;
+    background:linear-gradient(160deg,#4f7cff,#2f5bff); display:flex; align-items:center; justify-content:center;
+    box-shadow:0 8px 24px rgba(47,91,255,.28);
+  }
+  .icon svg { width:64px; height:64px; }
+  .hmeta { flex:1; }
+  .hmeta h1 { font-size:30px; font-weight:700; letter-spacing:-.02em; }
+  .hmeta .sub { color:var(--grey); font-size:18px; margin-top:4px; }
+  .hmeta .dev { color:var(--ios-blue); font-size:15px; margin-top:14px; }
+  .hrow { display:flex; align-items:center; justify-content:space-between; margin-top:18px; }
+  .get { background:var(--ios-blue); color:#fff; border:none; font-weight:700; font-size:17px;
+         padding:9px 34px; border-radius:22px; }
+  .ratings { display:flex; gap:42px; color:var(--grey); font-size:13px; text-transform:uppercase; letter-spacing:.04em; }
+  .ratings .big { color:var(--ink); font-size:21px; font-weight:700; text-transform:none; letter-spacing:0; }
+  .ratings .cell { text-align:center; }
+  /* Preview shots */
+  .section-title { font-size:24px; font-weight:700; letter-spacing:-.02em; margin:36px 0 20px; }
+  .shots { display:flex; gap:22px; overflow:hidden; }
+  .shot { width:226px; flex:none; }
+  .caption { font-size:19px; font-weight:600; line-height:1.25; letter-spacing:-.01em; margin-bottom:14px; min-height:48px; }
+  .frame {
+    border-radius:34px; overflow:hidden; border:7px solid #111; background:#111;
+    box-shadow:0 10px 30px rgba(0,0,0,.16);
+  }
+  .frame img { display:block; width:100%; }
+  /* Description */
+  .desc { margin-top:40px; padding-top:30px; border-top:1px solid var(--hair); }
+  .desc p { font-size:16px; line-height:1.55; color:#333; max-width:1000px; }
+  .desc p + p { margin-top:14px; }
+  .info { display:flex; gap:60px; margin-top:30px; flex-wrap:wrap; }
+  .info .cell .k { font-size:12px; color:var(--grey); text-transform:uppercase; letter-spacing:.05em; }
+  .info .cell .v { font-size:16px; font-weight:600; margin-top:4px; }
+</style>
+</head>
+<body>
+  <div class="topbar">&#x2039; Search&nbsp;&nbsp;&nbsp;App Store Preview</div>
+
+  <div class="header">
+    <div class="icon">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M3 5.5A1.5 1.5 0 0 1 4.5 4H11v15H4.5A1.5 1.5 0 0 1 3 17.5v-12Z" fill="#fff"/><path d="M21 5.5A1.5 1.5 0 0 0 19.5 4H13v15h6.5a1.5 1.5 0 0 0 1.5-1.5v-12Z" fill="#dbe4ff"/></svg>
+    </div>
+    <div class="hmeta">
+      <h1>StudyPartner</h1>
+      <div class="sub">Adaptive study planner for busy students</div>
+      <div class="dev">Sibahle Digital</div>
+      <div class="hrow">
+        <div class="ratings">
+          <div class="cell"><div>4.8 ★★★★★</div><div>148 Ratings</div></div>
+          <div class="cell"><div class="big">12+</div><div>Age</div></div>
+          <div class="cell"><div class="big">Education</div><div>Category</div></div>
+          <div class="cell"><div class="big">No. 7</div><div>Education</div></div>
+        </div>
+        <button class="get">GET</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">Preview</div>
+  <div class="shots">
+    <div class="shot"><div class="caption">Today, planned for you</div><div class="frame"><img src="shots/today.png"></div></div>
+    <div class="shot"><div class="caption">AI breaks down your study guide</div><div class="frame"><img src="shots/units.png"></div></div>
+    <div class="shot"><div class="caption">Your modules, synced from&nbsp;myModules</div><div class="frame"><img src="shots/modules.png"></div></div>
+    <div class="shot"><div class="caption">A week that fits your life</div><div class="frame"><img src="shots/plan.png"></div></div>
+    <div class="shot"><div class="caption">See how you're really tracking</div><div class="frame"><img src="shots/pacing.png"></div></div>
+  </div>
+
+  <div class="desc">
+    <div class="section-title" style="margin-top:0">About StudyPartner</div>
+    <p>StudyPartner turns the mountain of course material into a realistic daily plan. Connect your university's Moodle (myModules), pick the study guides and tutorial letters that matter, and let StudyPartner estimate the workload and fit it into the hours you actually have.</p>
+    <p>It reads your study guides, breaks them into learning units and subtopics, and schedules them around your deadlines. Fall behind? Completed sessions tune a personal pace multiplier and the remaining work is rescheduled — no guilt, just a plan that adapts.</p>
+    <p>Built mobile-first and low-data: material is downloaded only when you choose it, and your plan works offline.</p>
+    <div class="info">
+      <div class="cell"><div class="k">Size</div><div class="v">18.4 MB</div></div>
+      <div class="cell"><div class="k">Category</div><div class="v">Education</div></div>
+      <div class="cell"><div class="k">Compatibility</div><div class="v">iPhone · iOS 15+</div></div>
+      <div class="cell"><div class="k">Languages</div><div class="v">English</div></div>
+      <div class="cell"><div class="k">Price</div><div class="v">Free</div></div>
+    </div>
+  </div>
+</body>
+</html>
