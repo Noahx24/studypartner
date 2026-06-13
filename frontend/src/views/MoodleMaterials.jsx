@@ -25,6 +25,37 @@ const TYPE_LABELS = {
 };
 const typeLabel = (t) => TYPE_LABELS[t] || 'File';
 
+// A real Moodle course dumps hundreds of files — study guides and tutorial
+// letters buried among course-page fragments (index.html), bare links, and
+// empty pages. Rank by what a student actually feeds the AI so the useful
+// material floats to the top of each module and the scaffolding sinks.
+const STUDY_SIGNALS = [
+  { re: /study\s*guide/i, score: 100, label: 'Study guide' },
+  { re: /tutorial\s*letter|\btut(?:orial)?\s*\d|\btutorial\b/i, score: 90, label: 'Tutorial letter' },
+  // Real past papers — not the bare word "exam", which also tags admin
+  // folders like "Exam resources" (proctoring/invigilator guides).
+  { re: /past\s*(?:paper|exam)|exam\s*paper|question\s*paper|\bmemo(?:randum)?\b/i, score: 80, label: 'Past paper' },
+  { re: /learning\s*unit|\bunit\b|\bchapter\b|\[unit|lecture/i, score: 70, label: 'Lecture / unit' },
+  { re: /\bnotes?\b|\bslides?\b/i, score: 60, label: 'Notes' },
+];
+const DOC_EXT = /\.(pdf|docx?|pptx?)$/i;
+
+function rankMaterial(r) {
+  const filename = r.filename || '';
+  // Bury scaffolding: course-page HTML fragments, bare URL shortcuts, and
+  // pages with no real file behind them.
+  if (/index\.html?$/i.test(filename) || /\.url$/i.test(filename)) return { score: -100, label: null };
+  if (r.type === 'page' && !r.filename) return { score: -80, label: null };
+
+  const haystack = `${filename} ${r.title || ''}`.toLowerCase();
+  for (const s of STUDY_SIGNALS) {
+    if (s.re.test(haystack)) {
+      return { score: s.score + (DOC_EXT.test(filename) ? 5 : 0), label: s.label };
+    }
+  }
+  return { score: DOC_EXT.test(filename) ? 10 : 0, label: null };
+}
+
 /**
  * Per-file picker for which Moodle materials feed the AI.
  *
@@ -86,9 +117,18 @@ export default function MoodleMaterials() {
     for (const r of resources) {
       const next = pending[r.id];
       const included = next ?? r.included_in_ai;
+      const { score, label } = rankMaterial(r);
       const list = map.get(r.module_id) ?? { name: r.module_name, items: [] };
-      list.items.push({ ...r, included });
+      list.items.push({ ...r, included, _rank: score, _label: label });
       map.set(r.module_id, list);
+    }
+    // Within each module: keep the student's own picks pinned at the top,
+    // then suggested study material, then everything else, noise last.
+    for (const v of map.values()) {
+      v.items.sort((a, b) => {
+        const pin = (i) => (i.included || i.ingested_at ? 1 : 0);
+        return pin(b) - pin(a) || b._rank - a._rank || (a.filename || a.title).localeCompare(b.filename || b.title);
+      });
     }
     return [...map.entries()].map(([module_id, v]) => ({ module_id, ...v }));
   }, [resources, pending]);
@@ -187,8 +227,15 @@ export default function MoodleMaterials() {
                   {/* The Moodle activity title ("Additional Resources") repeats
                       for every file in a folder — the filename is what the
                       student actually recognises, so lead with it. */}
-                  <span className="block text-sm font-medium truncate">
-                    {r.filename || r.title}
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="block text-sm font-medium truncate">
+                      {r.filename || r.title}
+                    </span>
+                    {r._label && (
+                      <span className="shrink-0 rounded-full bg-primary/10 text-primary text-[10px] font-semibold px-2 py-0.5">
+                        {r._label}
+                      </span>
+                    )}
                   </span>
                   <span className="block text-xs text-muted-foreground mt-0.5 truncate">
                     {r.filename && r.filename !== r.title ? `${r.title} · ` : ''}
