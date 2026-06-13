@@ -14,6 +14,39 @@ availability, and adapts the plan when life gets in the way.
 - **Adapts** when a student falls behind — completed sessions feed a personal pace multiplier and remaining work is rescheduled.
 - **Mobile-first and low-data**: a 440-px web shell, IndexedDB offline cache, manual-first sync, and lazy material downloads (Moodle metadata is pulled at sync time; bytes only when the user picks a file for AI).
 
+## Recent changes
+
+A visual audit and live Moodle integration test (2026-06) drove the app
+end to end against real UNISA myModules data and produced the following
+fixes and additions. Full audit, sitemap, and screenshots live in
+[`audit/`](audit/).
+
+- **Moodle return scheme is `moodlemobile://`, not `studypartner://`.**
+  The live test proved UNISA forces the `moodlemobile` scheme on the
+  launch redirect, so the native app must register `moodlemobile` and
+  the deep-link handler must match `moodlemobile://token=...`. See
+  "Connecting Moodle" below and
+  [`audit/MOODLE_INTEGRATION.md`](audit/MOODLE_INTEGRATION.md).
+- **Study-guide parser fixed** so table-of-contents-led guides no longer
+  collapse every chapter into one unit; titles are cleaned of ligatures,
+  spaced apostrophes, page numbers, and stray run-in digits
+  (`app/src/models/services/content_analysis_service.py`,
+  `app/src/tests/test_unit_parsing.py`).
+- **Materials picker ranks results** — study guides, tutorial letters,
+  and unit readings float to the top with labels; `index.html`
+  fragments and bare links sink to the bottom
+  (`frontend/src/views/MoodleMaterials.jsx`).
+- **Password reset UI** added: `/forgot-password` and `/reset-password`
+  screens plus a `moodlemobile`-style reset deep link (the backend
+  endpoints already existed).
+- **AI Analysis confirm screen** now lists the units it extracted
+  (it previously reported "0 units found").
+- **Dashboard "Today"** now loads sessions correctly (was calling a
+  non-existent API method and always showing the empty state).
+- **Tests no longer wipe the dev database**: `DB_PATH` is overridable
+  via `STUDYPARTNER_DB_PATH` and the suite points at a temp DB
+  (`app/src/tests/conftest.py`).
+
 ## Authentication
 
 Two separate concerns:
@@ -33,29 +66,51 @@ student to paste a token manually.
 
 This integration uses Moodle's `tool_mobile/launch.php`, the same
 handshake the official Moodle Mobile app uses. The flow only completes
-end-to-end inside a native shell (Capacitor) that registers the
-`studypartner://` URL scheme with the OS. Moodle core does **not**
-accept `https://` callbacks here: `tool_mobile` enforces the RFC 3986
-scheme grammar (letters/digits/`.`/`+`/`-`) on the `urlscheme`
-parameter and rejects anything else with *"Invalid parameter: the value
-of urlscheme isn't valid"*.
+end-to-end inside a native shell (Capacitor) that registers a custom
+URL scheme with the OS. Moodle core does **not** accept `https://`
+callbacks here: `tool_mobile` enforces the RFC 3986 scheme grammar
+(letters/digits/`.`/`+`/`-`) on the `urlscheme` parameter and rejects
+anything else with *"Invalid parameter: the value of urlscheme isn't
+valid"*.
+
+> **Return scheme is `moodlemobile://`, not `studypartner://`.**
+> A live end-to-end test against UNISA myModules
+> (`mymodules.dtls.unisa.ac.za`, 2026-06-12) showed the institution
+> **ignores the requested `urlscheme` and forces `moodlemobile`** — the
+> redirect Moodle actually emits is `moodlemobile://token=<blob>`, the
+> official Moodle Mobile scheme. So the **backend/native side must
+> expect the token to arrive on `moodlemobile://`, not
+> `studypartner://`**: the native app registers `moodlemobile`, and the
+> deep-link handler matches `moodlemobile://token=...`. The token blob
+> itself is scheme-independent (`<signature>:::<token>:::<privatetoken>`),
+> so `/moodle/launch/callback` validates it the same way regardless of
+> which scheme wrapped the redirect. See
+> [`audit/MOODLE_INTEGRATION.md`](audit/MOODLE_INTEGRATION.md) for the
+> captured evidence.
+>
+> Caveat: `moodlemobile` is also the official UNISA myModules app's
+> scheme, so on a device with that app installed the OS may route the
+> redirect there. Registering an institution-specific scheme (if the
+> Moodle admin sets one) is the robust long-term fix.
 
 ```
 1. Student taps "Fetch from myModules" inside the StudyPartner app
-2. Frontend  → POST /moodle/launch { urlscheme: "studypartner" }
+2. Frontend  → POST /moodle/launch { urlscheme: "moodlemobile" }
    Backend   → mints a single-use passport (10-min TTL, server-side)
               → returns
                 <MOODLE>/admin/tool/mobile/launch.php
                   ?service=moodle_mobile_app
                   &passport=<random>
-                  &urlscheme=studypartner
+                  &urlscheme=moodlemobile
 3. Frontend stashes the passport in localStorage and opens the launch
    URL in the system browser (Capacitor's @capacitor/browser plugin).
 4. Moodle sees the user isn't signed in → redirects to the school's
    SSO tenant (Microsoft, SAML, OIDC, depending on the institution).
 5. SSO authenticates the student → asserts identity back to Moodle.
 6. Moodle mints a WS token for that user, redirects to:
-        studypartner://token=<base64-blob>
+        moodlemobile://token=<base64-blob>
+   (Moodle may force this scheme regardless of the urlscheme sent in
+   step 2 — see the note above.)
 7. The OS routes the custom-scheme URL to the StudyPartner native app.
    Capacitor's App.appUrlOpen listener fires; the deep-link handler
    reads `token` from the URL, reads `passport` from localStorage,
@@ -76,12 +131,17 @@ manual paste.
 
 ### Why a native shell is mandatory
 
-The redirect Moodle issues at step 6 is `studypartner://token=...`,
+The redirect Moodle issues at step 6 is `moodlemobile://token=...`,
 which only an OS-registered URL-scheme handler can catch. A pure-web
 build of StudyPartner cannot receive that redirect: the browser
 attempts to open the custom scheme and, finding no handler, fails. The
 Capacitor wrapper is what registers the scheme; without it the launch
 flow can't complete. There is no manual-paste fallback, by design.
+
+(The audit reproduced exactly this: a headless browser could drive SSO
+and MFA to completion but could not follow the `moodlemobile://`
+redirect, so it read the token off the launch page's "click here" link
+to stand in for the OS handler — see `audit/MOODLE_INTEGRATION.md`.)
 
 ### Building the native shell
 
@@ -89,8 +149,9 @@ Capacitor 6 is wired into `frontend/`. The runtime listener and launch
 helper are already in the code:
 
 - `frontend/src/lib/useMoodleDeepLink.js` — listens for
-  `App.appUrlOpen`, parses `studypartner://token=...`, POSTs the token
-  + passport to `/moodle/launch/callback`.
+  `App.appUrlOpen`, parses `moodlemobile://token=...` (the scheme Moodle
+  returns; see the note above), POSTs the token + passport to
+  `/moodle/launch/callback`.
 - `frontend/src/components/modules/FetchFromMyModulesButton.jsx` — on
   native, opens the Moodle launch URL via `@capacitor/browser` so SSO
   cookies live in the system browser; on web, falls back to a plain
@@ -108,8 +169,11 @@ npx cap add android
 npx cap sync
 ```
 
-Then register the `studypartner` URL scheme so the OS routes the
-redirect back into the app.
+Then register the `moodlemobile` URL scheme so the OS routes the
+redirect back into the app. (Moodle returns the token on
+`moodlemobile://` regardless of the `urlscheme` requested — see the
+note in "Connecting Moodle" above. Registering `studypartner` would
+leave the redirect with no handler.)
 
 **iOS** — open `ios/App/App/Info.plist` (in Xcode or a text editor)
 and add:
@@ -122,7 +186,7 @@ and add:
     <string>app.studypartner.client</string>
     <key>CFBundleURLSchemes</key>
     <array>
-      <string>studypartner</string>
+      <string>moodlemobile</string>
     </array>
   </dict>
 </array>
@@ -136,7 +200,7 @@ find the main `<activity>` block, and add an intent filter:
   <action android:name="android.intent.action.VIEW" />
   <category android:name="android.intent.category.DEFAULT" />
   <category android:name="android.intent.category.BROWSABLE" />
-  <data android:scheme="studypartner" />
+  <data android:scheme="moodlemobile" />
 </intent-filter>
 ```
 
