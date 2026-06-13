@@ -13,14 +13,20 @@ from app.src.models import LearningUnit, Subtopic
 # Structured headings are anchored at line start (multiline). These name a
 # unit explicitly ("CHAPTER 3", "LEARNING UNIT 4") and are tried first; only
 # if none match do we fall back to bare numbering, which is far noisier.
+#
+# The leading character class tolerates PDF run-in artifacts: extractors
+# routinely glue a page/section digit or a bullet onto the heading
+# ("5STUDY UNIT 5", "• Study unit 2"), which would otherwise hide the real
+# in-body heading and leave only the table-of-contents copy.
+_LU_LEAD = r"^[ \t•\-\*\d]{0,5}"
 LU_PATTERNS = [
-    re.compile(r"^\s*CHAPTER\s+(\d+|[IVXLCDM]+)[\s:\.\-]+(.+?)\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(_LU_LEAD + r"CHAPTER\s+(\d+|[IVXLCDM]+)[\s:\.\-]+(.+?)\s*$", re.IGNORECASE | re.MULTILINE),
     # "LEARNING UNIT 4", "STUDY UNIT 4", "UNIT 4". The qualifier and the
     # trailing title are both optional because UNISA study guides usually put
     # the unit title on the *next* line (handled in _collect_lu_matches).
-    re.compile(r"^\s*(?:LEARNING|STUDY)\s+UNIT\s+(\d+)\b[\s:\.\-]*(.*?)\s*$", re.IGNORECASE | re.MULTILINE),
-    re.compile(r"^\s*UNIT\s+(\d+)\b[\s:\.\-]*(.*?)\s*$", re.IGNORECASE | re.MULTILINE),
-    re.compile(r"^\s*WEEK\s+(\d+)[\s:\.\-]+(.+?)\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(_LU_LEAD + r"(?:LEARNING|STUDY)\s+UNIT\s+(\d+)\b[\s:\.\-]*(.*?)\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(_LU_LEAD + r"UNIT\s+(\d+)\b[\s:\.\-]*(.*?)\s*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(_LU_LEAD + r"WEEK\s+(\d+)[\s:\.\-]+(.+?)\s*$", re.IGNORECASE | re.MULTILINE),
 ]
 
 # Bare top-level numbering ("1. Introduction"), used ONLY when no structured
@@ -52,8 +58,27 @@ def _word_count(text: str) -> int:
     return len(re.findall(r"\w+", text))
 
 
+# PDF extractors emit typographic ligatures as single code points; map the
+# common ones back to ASCII so titles like "Deﬁning" read "Defining".
+_LIGATURES = {
+    "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl",
+}
+
+
+def _normalize_ligatures(t: str) -> str:
+    for k, v in _LIGATURES.items():
+        t = t.replace(k, v)
+    return t
+
+
 def _clean_title(t: str) -> str:
-    return re.sub(r"\s+", " ", t).strip().rstrip(":.-")
+    t = _normalize_ligatures(t)
+    t = re.sub(r"\s+", " ", t).strip()
+    # Collapse spaces the extractor inserted around apostrophes ("minor ' s").
+    t = re.sub(r"\s*([’'])\s*", r"\1", t)
+    # Drop a trailing table-of-contents page number ("Discourses on Africa 12").
+    t = re.sub(r"\s+\d{1,4}$", "", t)
+    return t.strip().rstrip(":.-")
 
 
 def _next_nonempty_line(text: str, pos: int) -> str:
@@ -79,7 +104,14 @@ def _collect_lu_matches(text: str) -> list[_Match]:
             if len(title) < 3:
                 # No inline title — grab the following line (next-line titles).
                 title = _next_nonempty_line(text, m.end())
-            if len(title) > MAX_TITLE_LEN or len(title) < 3:
+            # Strip a section digit the extractor glued to the title
+            # ("5Morality" -> "Morality"), but only when it matches this
+            # heading's own ordinal, so legitimate titles ("21st century")
+            # are left intact.
+            if ordinal_hint is not None:
+                title = re.sub(rf"^0*{ordinal_hint}(?=[A-Za-z])", "", title).strip()
+            # A heading must read as words, not a bare page number ("126").
+            if len(title) > MAX_TITLE_LEN or len(title) < 3 or not re.search(r"[A-Za-z]", title):
                 continue
             matches.append(
                 _Match(start=m.start(), end=m.end(), title=title, ordinal_hint=ordinal_hint)
@@ -114,7 +146,12 @@ def _collect_lu_matches(text: str) -> list[_Match]:
     return deduped
 
 
-TOC_CLUSTER_GAP_CHARS = 150
+# A table of contents / overview list packs unit headings together — even a
+# spaced-out contents page keeps consecutive unit lines within a few hundred
+# characters (the subtopic lines between them). Real unit bodies are pages
+# apart (thousands of chars), so a generous gap still never merges them, but
+# it does catch loosely-spaced indexes the old 150-char window let through.
+TOC_CLUSTER_GAP_CHARS = 500
 TOC_CLUSTER_MIN_SIZE = 3
 
 
